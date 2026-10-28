@@ -68,8 +68,9 @@ go run ./cmd/eval-import
 
 The tool downloads the CSV at a pinned dataset revision into `testdata/eval/raw/`, checks its SHA-256,
 samples rows deterministically, and rewrites `bitext.jsonl`. It does not touch the network when the raw file is
-already present and its checksum matches. `go run ./cmd/eval-import -h` lists the flags (seed, sample size per
-intent, paths).
+already present and its checksum matches. `go run ./cmd/eval-import -h` lists the flags (seed, URL and
+checksum, paths). The kept intents and the number of rows per intent are the table below, in
+`cmd/eval-import/main.go`.
 
 The same seed and revision always produce the same rows: for each kept Bitext intent the tool orders the
 candidate instructions by `sha256(seed + "\x00" + instruction)` and keeps the first N distinct ones, so the
@@ -108,6 +109,14 @@ Intents left out because their category is ambiguous in this taxonomy: `switch_a
 `change_order`, `place_order`, `delivery_options` (kept the set small; `other` is already covered).
 
 Bitext has no technical or feature-request intents, so those categories come only from the generated rows.
+
+Intent-based drafts are coarse. Rows a reviewer should look at first:
+
+- `bitext-bed9e2b91309` "problem with opening a Business account": drafted `0` from `create_account`, but
+  "problem" may mean something is broken (`1`).
+- `bitext-4c97808eaa99` "how to report an issue with online payments?": drafted `2` from `payment_issue`,
+  though it reads as a how-to question.
+- `W` rows with mild profanity ("bloody withdrawal penalties"): drafted as complaints by the `W` rule.
 
 ## Labeling guidelines
 
