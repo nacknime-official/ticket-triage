@@ -1,0 +1,52 @@
+{
+  "case": "bad-key",
+  "ticket": "gen-en-001",
+  "recorded_at": "2026-10-28T20:31:49Z",
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "request": {
+    "model": "typesafe/jev-1.14",
+    "state": {
+      "subject": "Dashboard down for everyone",
+      "body": "Since about 14:00 UTC nobody in our company can load the dashboard, it just shows 'Service Unavailable'. Our whole support team is idle."
+    },
+    "questions": {
+      "is_complaint": {
+        "type": "noul",
+        "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?"
+      },
+      "category": {
+        "type": "choice",
+        "instructions": "Which support team should handle the request in `subject` and `body`?",
+        "criteria": {
+          "billing": "Payments, invoices, refunds, double charges, pricing, subscriptions",
+          "technical": "Bugs, errors, outages, performance, integration or API problems",
+          "account": "Login, password, access, profile, account deletion or security of the account",
+          "feature_request": "Suggestions or requests for new functionality",
+          "other": "Anything that fits none of the categories above"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is the request in `subject` and `body` for the customer?",
+        "criteria": [
+          "No time pressure: general question or feedback",
+          "Normal: an issue the customer wants solved but can work around",
+          "High: blocks the customer's work or involves money already lost",
+          "Critical: outage, security incident, data loss, or legal threat"
+        ]
+      }
+    }
+  },
+  "status": 401,
+  "latency_ms": 79,
+  "header": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "message": "Missing Authentication header",
+      "code": 401
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "case": "bad-json",
+  "ticket": "gen-en-001",
+  "recorded_at": "2026-10-28T20:25:13Z",
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "request": "{\"model\":\"typesafe/jev-1.14\",\"state\":{\"subject\":\"Dashboard down for everyone\",\"body\":\"Since about 14:00 UTC nobody in our company can load the dashboard, it just shows 'Service Unavailable'. Our whole support team is idle.\"},\"questions\":{\"is_complaint\":{\"type\":\"noul\",\"instructions\":\"Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?\"},\"category\":{\"type\":\"choice\",\"instructions\":\"Which support team should handle the request in `subject` and `body`?\",\"criteria\":{\"billing\":\"Payments, invoices, refunds, double charges, pricing, subscriptions\",\"technical\":\"Bugs, errors, ",
+  "status": 400,
+  "latency_ms": 33,
+  "header": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "message": "JSON parsing failed",
+      "code": 400
+    },
+    "user_id": "redacted"
+  }
+}

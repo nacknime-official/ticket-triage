@@ -176,7 +176,8 @@ Thresholds (one config struct; starting values, tuned later by the eval):
 
 - **High urgency does not force `needs_human`.** Urgency only orders queues.
 - The decision is a pure function `policy.Decide(result, thresholds) (status, reason)` with table tests.
-- Tuning finer than 0.05 is pointless: probabilities vary by a few hundredths between runs **[unverified]**.
+- Tuning finer than 0.05 is pointless: probabilities vary by a few hundredths between runs (seen live: the
+  same ticket gave `P(complaint)` 0.84–0.87 over a dozen calls, T12).
 - The model version is pinned explicitly once thresholds are tuned.
 
 ### 3.4 Notification over SSE
@@ -266,10 +267,11 @@ creation time). Possession of the id alone must never give access, which is why 
 
 ### 4.4 Cost limits
 
-- Expected cost is about $0.00002 per ticket: ~450 input tokens at $0.042 per 1M input tokens, output free
-  **[unverified]**.
-- `usage.cost` is reported by OpenRouter **[unverified]**; when missing, cost is estimated from
-  `input_tokens × configured price` and marked `estimated`.
+- Expected cost is about $0.000025 per ticket: ~600 input tokens for the three questions and a short ticket
+  (582 and 656 for the two sample tickets in T12) at $0.042 per 1M input tokens. Output tokens are reported
+  (87) but not billed.
+- `usage.cost` is reported by OpenRouter and equals `input_tokens × $0.042 / 1M` (T12); when missing (the
+  direct API is unverified), cost is estimated from `input_tokens × configured price` and marked `estimated`.
 - The daily budget (§4.1) is the hard stop. It is checked before each call and may overshoot by the calls
   already in flight.
 
@@ -384,15 +386,33 @@ River and RabbitMQ are added later as optional drivers behind `QUEUE_DRIVER=kafk
 
 ## 7. Jev integration
 
-- Endpoint: `POST https://openrouter.ai/api/v1/systemone` with a Bearer OpenRouter key; direct TypeSafe is
-  `POST https://api.typesafe.ai/v1/systemone` with the same wire format **[unverified]**.
+Facts marked T12 were checked live by `cmd/jevprobe` against OpenRouter on 2026-10-28 (29 calls, about
+$0.0005); the recordings are in `internal/classifier/jev/testdata/live/`.
+
+- Endpoint: `POST https://openrouter.ai/api/v1/systemone` with a Bearer OpenRouter key (T12). OpenRouter's
+  Decisions API, `POST https://openrouter.ai/api/alpha/decisions`, takes the same request and returns the
+  same response (T12); the adapter uses `/v1/systemone`. Direct TypeSafe is
+  `POST https://api.typesafe.ai/v1/systemone`: it exists (401 for a bad key, T12), but its success format is
+  **[unverified]** (no direct key).
 - Request `{model, state, questions}`; response `{model, answers: {<id>: ...}, usage: {input_tokens,
-  output_tokens, cost?}}` **[unverified]**. Question ids are not shown to the model; meaning comes from
+  output_tokens, cost}, id, provider}` (T12). Question ids are not shown to the model; meaning comes from
   `instructions` and `criteria`.
-- Answer shapes: `noul` → `P(yes)` without a confidence; `choice` → option, probabilities, confidence;
-  `score` → weighted level, probabilities, confidence **[unverified]**.
-- Models: `typesafe/jev-1.14` (pinned), `~typesafe/jev-latest` (alias) **[unverified]**.
-- Latency claimed 70–500 ms, mostly ~100 ms; extra questions barely add latency **[unverified]**.
+- Answer shapes (T12): `noul` → `{type, noul: P(yes)}` without a confidence; `choice` → `{type, choice,
+  probabilities: {option: p}, confidence}`; `score` → `{type, score, legend: {"0": level, ...},
+  probabilities: {"0": p, ...}, confidence}`. A `score` with a single level is accepted (the docs say 2–10).
+- Models on `/v1/systemone` (T12): `typesafe/jev-1.14` (pinned) and `~typesafe/jev-latest` (alias) both serve
+  the snapshot `typesafe/jev-1.14-20261014`, which is also accepted as a model id; `typesafe/jev-1.13` serves
+  `typesafe/jev-1.13-20260917`. `typesafe/jev-latest` (no `~`) and `typesafe/jev-router` are rejected with
+  400: `jev-router` is a chat-completions router and the only Jev id in OpenRouter's public model list, which
+  does not list the System One models. The direct API's names (`jev-1.14.0`, `jev-latest`) are
+  **[unverified]**.
+- Errors on OpenRouter (T12): `{"error": {"code": <HTTP status>, "message": ...}}`, sometimes with the
+  account's `user_id`. 401 for a bad key ("User not found." for a well-formed unknown key, "Missing
+  Authentication header" for a malformed one); 400 for an unknown model, a criteria validation failure (the message
+  names the field) and unparseable JSON; no 422 was seen. The direct API answers a bad key with 401
+  `{"detail": {"error_type": "authentication_error", "message": ...}}`. Responses carry no rate-limit headers.
+- Latency from Europe (T12): mostly 200–550 ms for a success, with single calls up to 1.6 s (a cold first
+  call, `jev-1.13`); errors return in 25–280 ms. TypeSafe claims 70–500 ms, mostly ~100 ms from US West.
 - Context limit ~32k tokens for state plus one question in standard mode **[unverified]**; tickets are far below.
 - The adapter maps HTTP failures to three errors the processor reacts to: `ErrTransient` (429, 529, 5xx,
   timeout, network), `ErrPermanent` (400, 422, missing or mistyped answers), `ErrAuth` (401, 403).
@@ -501,9 +521,14 @@ T22 does not depend on code and can start any time.
 
 ## 11. Open items
 
-- **Jev details, unverified until a live call (T12):** error format on OpenRouter, `Retry-After` on 429/529,
-  rate limits for a new account, `usage.cost` on the direct API, whether the Decisions API matches
-  `/v1/systemone`, whether prepaid credits are required, served model snapshot ids.
+- **Jev details still open after T12** (2026-10-28; resolved there: the OpenRouter error format, the Decisions
+  API, served snapshot ids and working model ids, see §7):
+  - `Retry-After` on 429/529: no 429 or 529 was seen, and the 400 and 401 answers carry no `Retry-After`.
+  - Rate limits for a new account: five concurrent calls all succeeded; responses carry no rate-limit headers,
+    and the `rate_limit` field of OpenRouter's key endpoint is deprecated (`-1`). The limit is unknown.
+  - `usage.cost` and the success format on the direct API: not checked, there is no direct TypeSafe key.
+  - Whether prepaid credits are required: the key used had purchased credits (not free tier); an account
+    without credits was not tried.
 - **Jev quality on Ukrainian** and on surzhyk: unknown until the eval.
 - **Dataset license** for the public ticket dataset; decides whether any of it can be committed.
 - **Limit values** (rate limits, caps, budget, token TTL, text lengths) are proposals to tune.

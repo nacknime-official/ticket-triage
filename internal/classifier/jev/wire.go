@@ -9,14 +9,16 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 )
 
-// The response shape below is the documented one (README §7, report §5.2):
+// The response shape below was seen live on OpenRouter (cmd/jevprobe, T12;
+// testdata/live), for /v1/systemone and the Decisions API alike:
 //
-//	{"model": "...", "answers": {"<id>": {...}}, "usage": {"input_tokens": n, "output_tokens": n, "cost": usd}}
+//	{"model": "...", "answers": {"<id>": {...}}, "usage": {"input_tokens": n, "output_tokens": n, "cost": usd},
+//	 "id": "gen-...", "provider": "TypeSafe"}
 //
-// [unverified] until a live call (T12). Each part is decoded by its own
-// helper so T12 can correct one without touching the rest. Decoding is
-// lenient (unknown members are ignored, usage and model may be missing);
-// answers are then validated strictly.
+// The direct API is assumed to share it [unverified]. Each part is decoded by
+// its own helper so a difference can be corrected in one place. Decoding is
+// lenient (unknown members such as id and provider are ignored, usage and
+// model may be missing); answers are then validated strictly.
 
 // envelope keeps the raw parts of a response. Only these members reach the
 // audit row, so an unexpected member that echoes the request cannot carry
@@ -41,9 +43,9 @@ func decodeEnvelope(body []byte) (envelope, []byte, error) {
 	return env, raw, nil
 }
 
-// servedModel returns the model as served. [unverified] The documented
-// response has a top-level "model" string (e.g. typesafe/jev-1.14-20261014
-// on OpenRouter); anything else gives "".
+// servedModel returns the model as served: the top-level "model" string, a
+// dated snapshot such as typesafe/jev-1.14-20261014 on OpenRouter (T12).
+// Anything else gives "".
 func servedModel(raw jsontext.Value) string {
 	var m string
 	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
@@ -62,10 +64,11 @@ type usage struct {
 	HasInputTokens bool
 }
 
-// decodeUsage reads "usage". [unverified] input_tokens and output_tokens are
-// documented for both providers; "cost" (USD) only for OpenRouter. A missing
-// or malformed usage gives the zero usage: it never fails the call. A
-// negative or non-finite cost is ignored.
+// decodeUsage reads "usage". OpenRouter reports input_tokens, output_tokens
+// and "cost" in USD, which is input_tokens times the input price: the output
+// tokens it reports are not billed (T12). Whether the direct API reports a
+// cost is [unverified]. A missing or malformed usage gives the zero usage: it
+// never fails the call. A negative or non-finite cost is ignored.
 func decodeUsage(raw jsontext.Value) usage {
 	var w struct {
 		InputTokens  *int     `json:"input_tokens"`
@@ -88,9 +91,10 @@ func decodeUsage(raw jsontext.Value) usage {
 	return u
 }
 
-// Answer shapes (README §7) [unverified]: noul → {type, noul: P(yes)} without
-// a confidence; choice → {choice, probabilities, confidence}; score →
-// {score, legend, probabilities, confidence}. Only the fields the triage uses
+// Answer shapes (README §7, seen live in T12): noul → {type, noul: P(yes)}
+// without a confidence; choice → {type, choice, probabilities: {option: p},
+// confidence}; score → {type, score, legend: {"0": level, ...},
+// probabilities: {"0": p, ...}, confidence}. Only the fields the triage uses
 // are decoded; the probabilities stay in the raw response. A "type" member is
 // checked when present.
 type (
