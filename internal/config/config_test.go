@@ -100,8 +100,15 @@ func TestDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := all{
-		Log:      Log{Level: slog.LevelInfo},
-		HTTP:     HTTP{Addr: ":8080", DebugAddr: "127.0.0.1:6060"},
+		Log: Log{Level: slog.LevelInfo},
+		HTTP: HTTP{
+			Addr:              ":8080",
+			DebugAddr:         "127.0.0.1:6060",
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+			WriteTimeout:      10 * time.Second,
+		},
 		Postgres: Postgres{URL: NewSecret("postgres://triage:triage@localhost:5432/triage?sslmode=disable")},
 		Kafka:    Kafka{Brokers: []string{"localhost:29092"}, ConsumerGroup: "triage-workers"},
 		Classifier: Classifier{
@@ -277,6 +284,12 @@ func TestValidation(t *testing.T) {
 		{"debug addr on all interfaces", map[string]string{"DEBUG_ADDR": ":6060"}, []string{"DEBUG_ADDR"}},
 		{"debug addr public", map[string]string{"DEBUG_ADDR": "10.0.0.1:6060"}, []string{"DEBUG_ADDR"}},
 		{"trusted proxies", map[string]string{"TRUSTED_PROXIES": "10.0.0.0/8,nope"}, []string{"TRUSTED_PROXIES"}},
+		{"http timeout zero", map[string]string{"HTTP_IDLE_TIMEOUT": "0s"}, []string{"HTTP_IDLE_TIMEOUT"}},
+		{
+			"read header timeout above read timeout",
+			map[string]string{"HTTP_READ_HEADER_TIMEOUT": "20s"},
+			[]string{"HTTP_READ_HEADER_TIMEOUT"},
+		},
 		{"kafka broker without port", map[string]string{"KAFKA_BROKERS": "a:9092,b"}, []string{"KAFKA_BROKERS"}},
 		{"kafka broker without host", map[string]string{"KAFKA_BROKERS": ":9092"}, []string{"KAFKA_BROKERS"}},
 		{"kafka brokers only commas", map[string]string{"KAFKA_BROKERS": ", ,"}, []string{"KAFKA_BROKERS"}},
