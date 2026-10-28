@@ -15,6 +15,7 @@ const (
 	codePayloadTooLarge      = "payload_too_large"
 	codeUnsupportedMediaType = "unsupported_media_type"
 	codeBacklogFull          = "backlog_full"
+	codeRateLimited          = "rate_limited"
 	codeInternal             = "internal"
 )
 
