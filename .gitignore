@@ -9,3 +9,6 @@ coverage.*
 
 # Raw eval datasets fetched by script; committed only if the license allows.
 /testdata/eval/raw/
+
+# cmd/eval answer cache (per ticket and model; no ticket text).
+/.cache/
