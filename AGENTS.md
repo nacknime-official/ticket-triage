@@ -22,7 +22,8 @@ Rules for every coding agent working in this repository.
   `github.com/twmb/franz-go` (incl. `kadm`, `kfake`), `github.com/testcontainers/testcontainers-go`
   (tests only), `golang.org/x/time/rate`.
 - Anything else needs a stated reason in the PR that adds it.
-- Use `encoding/json` (v1). Never mix `encoding/json` v1 and v2 in one package (lint denies v2).
+- Use `encoding/json/v2`, and `encoding/json/jsontext` where streaming or token-level access is needed.
+  Never mix v1 and v2: `encoding/json` (v1) is denied by lint.
 
 ## Architecture boundaries
 

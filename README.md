@@ -341,7 +341,7 @@ triage,outbox,kafka,notify,storage/postgres,httpapi,config}`, `migrations/`, `te
 
 | Choice | Why |
 |---|---|
-| **Go 1.27, stdlib first** | `net/http` routing patterns, `log/slog`, stdlib `uuid` (`uuid.NewV7()`), `sync.WaitGroup.Go`, `testing/synctest`, `crypto/rand.Text`. Verified locally on `go1.27.3`. Use `encoding/json` v1 everywhere, do not mix with v2 |
+| **Go 1.27, stdlib first** | `net/http` routing patterns, `log/slog`, stdlib `uuid` (`uuid.NewV7()`), `sync.WaitGroup.Go`, `testing/synctest`, `crypto/rand.Text`. Verified locally on `go1.27.3`. Use `encoding/json/v2` (plus `encoding/json/jsontext` for streaming) everywhere, do not mix with v1 |
 | **pgx v5** | Native Postgres driver and pool; encodes and scans stdlib `uuid.UUID` without adapters (verified with v5.11.0) |
 | **goose v3** | SQL migrations embedded with `embed.FS`, run by `cmd/migrate` |
 | **franz-go** (+ `kadm`, `kfake`) | Pure Go (no cgo), full control of manual commit and rebalance (`DisableAutoCommit`, `BlockRebalanceOnPoll`, `CommitRecords`), in-process fake broker for fast tests. Chosen over segmentio/kafka-go (still 0.x, less control) and confluent-kafka-go (cgo) |
