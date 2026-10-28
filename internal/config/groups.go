@@ -40,15 +40,30 @@ type HTTP struct {
 	Addr           string         // HTTP_ADDR
 	DebugAddr      string         // DEBUG_ADDR, always a loopback address
 	TrustedProxies []netip.Prefix // TRUSTED_PROXIES; empty means use RemoteAddr only
+
+	ReadHeaderTimeout time.Duration // HTTP_READ_HEADER_TIMEOUT
+	ReadTimeout       time.Duration // HTTP_READ_TIMEOUT, the whole request incl. body
+	IdleTimeout       time.Duration // HTTP_IDLE_TIMEOUT, between keep-alive requests
+	// WriteTimeout is HTTP_WRITE_TIMEOUT: the per-request write deadline of
+	// non-streaming handlers. The server itself has no WriteTimeout (SSE).
+	WriteTimeout time.Duration
 }
 
 // HTTP reads the HTTP group.
 func (l *Loader) HTTP() HTTP {
-	return HTTP{
-		Addr:           l.addr("HTTP_ADDR", ":8080"),
-		DebugAddr:      l.loopbackAddr("DEBUG_ADDR", "127.0.0.1:6060"),
-		TrustedProxies: l.prefixes("TRUSTED_PROXIES", ""),
+	c := HTTP{
+		Addr:              l.addr("HTTP_ADDR", ":8080"),
+		DebugAddr:         l.loopbackAddr("DEBUG_ADDR", "127.0.0.1:6060"),
+		TrustedProxies:    l.prefixes("TRUSTED_PROXIES", ""),
+		ReadHeaderTimeout: l.duration("HTTP_READ_HEADER_TIMEOUT", "5s"),
+		ReadTimeout:       l.duration("HTTP_READ_TIMEOUT", "10s"),
+		IdleTimeout:       l.duration("HTTP_IDLE_TIMEOUT", "60s"),
+		WriteTimeout:      l.duration("HTTP_WRITE_TIMEOUT", "10s"),
 	}
+	if !l.failed("HTTP_READ_HEADER_TIMEOUT", "HTTP_READ_TIMEOUT") && c.ReadHeaderTimeout > c.ReadTimeout {
+		l.fail("HTTP_READ_HEADER_TIMEOUT", "must not exceed HTTP_READ_TIMEOUT")
+	}
+	return c
 }
 
 // LogValue implements slog.LogValuer.
@@ -61,6 +76,10 @@ func (c HTTP) LogValue() slog.Value {
 		slog.String("addr", c.Addr),
 		slog.String("debug_addr", c.DebugAddr),
 		slog.Any("trusted_proxies", proxies),
+		slog.Duration("read_header_timeout", c.ReadHeaderTimeout),
+		slog.Duration("read_timeout", c.ReadTimeout),
+		slog.Duration("idle_timeout", c.IdleTimeout),
+		slog.Duration("write_timeout", c.WriteTimeout),
 	)
 }
 
