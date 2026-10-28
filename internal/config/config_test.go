@@ -22,6 +22,7 @@ type all struct {
 	Outbox     Outbox
 	Classifier Classifier
 	Thresholds Thresholds
+	Worker     Worker
 	Limits     Limits
 }
 
@@ -35,6 +36,7 @@ func loadAll(getenv func(string) string) (all, error) {
 		Outbox:     l.Outbox(),
 		Classifier: l.Classifier(),
 		Thresholds: l.Thresholds(),
+		Worker:     l.Worker(),
 		Limits:     l.Limits(),
 	}
 	return c, l.Err()
@@ -139,6 +141,7 @@ func TestDefaults(t *testing.T) {
 			ComplaintUncertainHigh: 0.65,
 			RouteOtherToHuman:      true,
 		},
+		Worker: Worker{Concurrency: 8, BatchSize: 64, ShutdownTimeout: 30 * time.Second},
 		Limits: Limits{
 			SubmitRatePerMin:      5,
 			SubmitBurst:           3,
@@ -212,6 +215,16 @@ func TestParse(t *testing.T) {
 			check: func(t *testing.T, c all) {
 				if want := []string{"a:9092", "b:9092"}; !slices.Equal(c.Kafka.Brokers, want) {
 					t.Errorf("Brokers = %v, want %v", c.Kafka.Brokers, want)
+				}
+			},
+		},
+		{
+			name: "worker",
+			env:  map[string]string{"WORKER_CONCURRENCY": "2", "WORKER_BATCH_SIZE": "10", "WORKER_SHUTDOWN_TIMEOUT": "1m"},
+			check: func(t *testing.T, c all) {
+				want := Worker{Concurrency: 2, BatchSize: 10, ShutdownTimeout: time.Minute}
+				if c.Worker != want {
+					t.Errorf("Worker = %+v, want %+v", c.Worker, want)
 				}
 			},
 		},
@@ -318,6 +331,8 @@ func TestValidation(t *testing.T) {
 		{"kafka broker without port", map[string]string{"KAFKA_BROKERS": "a:9092,b"}, []string{"KAFKA_BROKERS"}},
 		{"kafka broker without host", map[string]string{"KAFKA_BROKERS": ":9092"}, []string{"KAFKA_BROKERS"}},
 		{"kafka brokers only commas", map[string]string{"KAFKA_BROKERS": ", ,"}, []string{"KAFKA_BROKERS"}},
+		{"worker concurrency zero", map[string]string{"WORKER_CONCURRENCY": "0"}, []string{"WORKER_CONCURRENCY"}},
+		{"worker shutdown timeout zero", map[string]string{"WORKER_SHUTDOWN_TIMEOUT": "0s"}, []string{"WORKER_SHUTDOWN_TIMEOUT"}},
 		{"classifier kind", map[string]string{"CLASSIFIER": "magic"}, []string{"CLASSIFIER"}},
 		{"jev provider", map[string]string{"JEV_PROVIDER": "acme"}, []string{"JEV_PROVIDER"}},
 		{"openrouter key missing", map[string]string{"CLASSIFIER": "jev", "TYPESAFE_API_KEY": "k"}, []string{"OPENROUTER_API_KEY"}},

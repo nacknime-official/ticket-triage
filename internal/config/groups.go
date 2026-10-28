@@ -266,6 +266,31 @@ func (c Thresholds) LogValue() slog.Value {
 	)
 }
 
+// Worker configures the classifier consumer in cmd/worker.
+type Worker struct {
+	Concurrency     int           // WORKER_CONCURRENCY, tickets processed at once
+	BatchSize       int           // WORKER_BATCH_SIZE, max records per poll and commit
+	ShutdownTimeout time.Duration // WORKER_SHUTDOWN_TIMEOUT, to drain in-flight tickets and leave the group
+}
+
+// Worker reads the Worker group.
+func (l *Loader) Worker() Worker {
+	return Worker{
+		Concurrency:     l.int("WORKER_CONCURRENCY", "8", 1),
+		BatchSize:       l.int("WORKER_BATCH_SIZE", "64", 1),
+		ShutdownTimeout: l.duration("WORKER_SHUTDOWN_TIMEOUT", "30s"),
+	}
+}
+
+// LogValue implements slog.LogValuer.
+func (c Worker) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Int("concurrency", c.Concurrency),
+		slog.Int("batch_size", c.BatchSize),
+		slog.Duration("shutdown_timeout", c.ShutdownTimeout),
+	)
+}
+
 // Limits configures the resource limits of README §4.1.
 type Limits struct {
 	SubmitRatePerMin      float64       // SUBMIT_RATE_PER_MIN, per client IP
