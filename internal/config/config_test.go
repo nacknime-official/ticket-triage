@@ -19,6 +19,7 @@ type all struct {
 	HTTP       HTTP
 	Postgres   Postgres
 	Kafka      Kafka
+	Outbox     Outbox
 	Classifier Classifier
 	Thresholds Thresholds
 	Limits     Limits
@@ -31,6 +32,7 @@ func loadAll(getenv func(string) string) (all, error) {
 		HTTP:       l.HTTP(),
 		Postgres:   l.Postgres(),
 		Kafka:      l.Kafka(),
+		Outbox:     l.Outbox(),
 		Classifier: l.Classifier(),
 		Thresholds: l.Thresholds(),
 		Limits:     l.Limits(),
@@ -111,6 +113,13 @@ func TestDefaults(t *testing.T) {
 		},
 		Postgres: Postgres{URL: NewSecret("postgres://triage:triage@localhost:5432/triage?sslmode=disable")},
 		Kafka:    Kafka{Brokers: []string{"localhost:29092"}, ConsumerGroup: "triage-workers"},
+		Outbox: Outbox{
+			PollInterval:    500 * time.Millisecond,
+			BatchSize:       100,
+			PublishTimeout:  10 * time.Second,
+			Retention:       7 * 24 * time.Hour,
+			CleanupInterval: time.Hour,
+		},
 		Classifier: Classifier{
 			Kind:           ClassifierFake,
 			DailyBudgetUSD: 1,
@@ -247,6 +256,22 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name: "outbox",
+			env: map[string]string{
+				"OUTBOX_POLL_INTERVAL": "2s", "OUTBOX_BATCH_SIZE": "1", "OUTBOX_PUBLISH_TIMEOUT": "1m",
+				"OUTBOX_RETENTION": "24h", "OUTBOX_CLEANUP_INTERVAL": "5m",
+			},
+			check: func(t *testing.T, c all) {
+				want := Outbox{
+					PollInterval: 2 * time.Second, BatchSize: 1, PublishTimeout: time.Minute,
+					Retention: 24 * time.Hour, CleanupInterval: 5 * time.Minute,
+				}
+				if c.Outbox != want {
+					t.Errorf("Outbox = %+v, want %+v", c.Outbox, want)
+				}
+			},
+		},
+		{
 			name: "limits",
 			env: map[string]string{
 				"SUBMIT_RATE_PER_MIN": "0.5", "MAX_BODY_BYTES": "1", "SSE_MAX_PER_IP": "7", "SSE_MAX_GLOBAL": "7",
@@ -311,6 +336,8 @@ func TestValidation(t *testing.T) {
 		{"int syntax", map[string]string{"JEV_MAX_CONCURRENCY": "eight"}, []string{"JEV_MAX_CONCURRENCY"}},
 		{"int below minimum", map[string]string{"PENDING_CAP": "0"}, []string{"PENDING_CAP"}},
 		{"int float", map[string]string{"MAX_BODY_BYTES": "16.5"}, []string{"MAX_BODY_BYTES"}},
+		{"outbox batch size zero", map[string]string{"OUTBOX_BATCH_SIZE": "0"}, []string{"OUTBOX_BATCH_SIZE"}},
+		{"outbox poll interval zero", map[string]string{"OUTBOX_POLL_INTERVAL": "0s"}, []string{"OUTBOX_POLL_INTERVAL"}},
 		{"threshold above one", map[string]string{"CATEGORY_MIN_CONFIDENCE": "1.2"}, []string{"CATEGORY_MIN_CONFIDENCE"}},
 		{"bool", map[string]string{"ROUTE_OTHER_TO_HUMAN": "yes"}, []string{"ROUTE_OTHER_TO_HUMAN"}},
 		{

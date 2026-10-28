@@ -20,18 +20,18 @@ type memRepo struct {
 	tickets map[uuid.UUID]ticket.Ticket
 	gets    int
 	// Errors injected per method.
-	createErr, getErr, countErr error
+	submitErr, getErr, countErr error
 }
 
 func newMemRepo() *memRepo {
 	return &memRepo{tickets: make(map[uuid.UUID]ticket.Ticket)}
 }
 
-func (r *memRepo) Create(_ context.Context, t ticket.Ticket) error {
+func (r *memRepo) Submit(_ context.Context, t ticket.Ticket) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.createErr != nil {
-		return r.createErr
+	if r.submitErr != nil {
+		return r.submitErr
 	}
 	if _, ok := r.tickets[t.ID]; ok {
 		return fmt.Errorf("duplicate id %s", t.ID)
@@ -212,7 +212,7 @@ func TestSubmitRepositoryErrors(t *testing.T) {
 	boom := errors.New("boom")
 	for name, setup := range map[string]func(*memRepo){
 		"count":  func(r *memRepo) { r.countErr = boom },
-		"create": func(r *memRepo) { r.createErr = boom },
+		"submit": func(r *memRepo) { r.submitErr = boom },
 	} {
 		t.Run(name, func(t *testing.T) {
 			repo := newMemRepo()

@@ -35,7 +35,8 @@ func NewTriageStore(db TriageDB) *TriageStore {
 
 // Ticket implements triage.Store.
 func (s *TriageStore) Ticket(ctx context.Context, id uuid.UUID) (ticket.Ticket, error) {
-	return NewTickets(s.db).Get(ctx, id)
+	// Only Get is used, so no submitted topic is needed.
+	return NewTickets(s.db, "").Get(ctx, id)
 }
 
 // SpentSince implements triage.Store. Calls without a cost count as zero.

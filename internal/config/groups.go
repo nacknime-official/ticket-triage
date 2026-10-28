@@ -131,6 +131,37 @@ func (c Kafka) LogValue() slog.Value {
 	)
 }
 
+// Outbox configures the outbox relay in cmd/api.
+type Outbox struct {
+	PollInterval    time.Duration // OUTBOX_POLL_INTERVAL
+	BatchSize       int           // OUTBOX_BATCH_SIZE
+	PublishTimeout  time.Duration // OUTBOX_PUBLISH_TIMEOUT, per batch
+	Retention       time.Duration // OUTBOX_RETENTION, of published rows
+	CleanupInterval time.Duration // OUTBOX_CLEANUP_INTERVAL
+}
+
+// Outbox reads the Outbox group.
+func (l *Loader) Outbox() Outbox {
+	return Outbox{
+		PollInterval:    l.duration("OUTBOX_POLL_INTERVAL", "500ms"),
+		BatchSize:       l.int("OUTBOX_BATCH_SIZE", "100", 1),
+		PublishTimeout:  l.duration("OUTBOX_PUBLISH_TIMEOUT", "10s"),
+		Retention:       l.duration("OUTBOX_RETENTION", "168h"),
+		CleanupInterval: l.duration("OUTBOX_CLEANUP_INTERVAL", "1h"),
+	}
+}
+
+// LogValue implements slog.LogValuer.
+func (c Outbox) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Duration("poll_interval", c.PollInterval),
+		slog.Int("batch_size", c.BatchSize),
+		slog.Duration("publish_timeout", c.PublishTimeout),
+		slog.Duration("retention", c.Retention),
+		slog.Duration("cleanup_interval", c.CleanupInterval),
+	)
+}
+
 // Classifier selects the classifier and configures Jev and the spend cap.
 type Classifier struct {
 	Kind           string  // CLASSIFIER: ClassifierFake or ClassifierJev
