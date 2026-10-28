@@ -66,6 +66,11 @@ type Classification struct {
 	CategoryConfidence float64
 	// ComplaintP is P(yes) for "is this a complaint".
 	ComplaintP float64
+	// IsComplaint is the complaint flag decided from ComplaintP.
+	IsComplaint bool
+	// ComplaintUncertain means ComplaintP fell inside the configured uncertain
+	// band (README §3.3); the status is unaffected.
+	ComplaintUncertain bool
 	// Urgency is the weighted urgency level in [0, 3].
 	Urgency           float64
 	UrgencyConfidence float64

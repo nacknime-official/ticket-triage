@@ -82,7 +82,9 @@ func (s *Service) Submit(ctx context.Context, subject, body string) (Ticket, Tok
 	}
 
 	token, hash := NewToken()
-	now := s.now().UTC()
+	// Postgres keeps microseconds; truncating here makes the returned ticket
+	// equal to the one read back later.
+	now := s.now().UTC().Truncate(time.Microsecond)
 	t := Ticket{
 		ID:              uuid.NewV7(),
 		Subject:         subject,
