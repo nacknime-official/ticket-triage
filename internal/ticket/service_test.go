@@ -78,7 +78,7 @@ func (r *memRepo) len() int {
 func TestSubmit(t *testing.T) {
 	repo := newMemRepo()
 	svc := ticket.NewService(repo, ticket.Config{})
-	before := time.Now()
+	before := time.Now().Truncate(time.Microsecond)
 
 	tk, tok, err := svc.Submit(t.Context(), "Refund", "Charged twice, please refund.")
 	if err != nil {
@@ -96,6 +96,9 @@ func TestSubmit(t *testing.T) {
 	}
 	if tk.CreatedAt.Location() != time.UTC {
 		t.Errorf("CreatedAt location = %v, want UTC", tk.CreatedAt.Location())
+	}
+	if !tk.CreatedAt.Equal(tk.CreatedAt.Truncate(time.Microsecond)) {
+		t.Errorf("CreatedAt = %v, want microsecond precision as stored by Postgres", tk.CreatedAt)
 	}
 
 	stored, err := repo.Get(t.Context(), tk.ID)
