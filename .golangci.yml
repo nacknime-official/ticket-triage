@@ -1,0 +1,70 @@
+# golangci-lint v2 config. The version is pinned in Makefile and CI.
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - depguard
+    - errorlint
+    - misspell
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      check-type-assertions: true
+    depguard:
+      rules:
+        json-v1-only:
+          files:
+            - $all
+          deny:
+            - pkg: encoding/json/v2
+              desc: use encoding/json (v1) everywhere; do not mix v1 and v2
+            - pkg: encoding/json/jsontext
+              desc: use encoding/json (v1) everywhere; do not mix v1 and v2
+        domain-no-infra:
+          files:
+            - "**/internal/ticket/**"
+            - "**/internal/classifier/*.go"
+            - "**/internal/triage/**"
+          deny:
+            - pkg: net/http
+              desc: domain packages are transport-agnostic
+            - pkg: github.com/twmb/franz-go
+              desc: domain packages must not depend on Kafka
+            - pkg: github.com/jackc/pgx
+              desc: domain packages must not depend on Postgres
+            - pkg: github.com/nacknime-official/ticket-triage/internal/kafka
+              desc: domain packages must not depend on Kafka
+            - pkg: github.com/nacknime-official/ticket-triage/internal/storage
+              desc: domain packages must not depend on Postgres
+            - pkg: github.com/nacknime-official/ticket-triage/internal/httpapi
+              desc: domain packages must not depend on HTTP
+  exclusions:
+    presets:
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/nacknime-official/ticket-triage
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,11 @@
+# Local secrets.
+.env
+
+# Build and test output.
+/bin/
+*.test
+*.out
+coverage.*
+
+# Raw eval datasets fetched by script; committed only if the license allows.
+/testdata/eval/raw/
