@@ -2,8 +2,12 @@ package evalset
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -98,43 +102,77 @@ func TestRead(t *testing.T) {
 	tests := []struct {
 		name    string
 		line    string
-		wantErr string
+		wantErr string           // part of an error message that evalset writes
+		isErr   func(error) bool // matches a decode error, whose json/v2 text is not stable
 	}{
-		{"valid", `{` + valid + `}`, ""},
-		{"valid with tags", `{` + valid + `,"tags":["angry","typos"]}`, ""},
-		{"unknown field", `{` + valid + `,"priority":"high"}`, "unknown object member"},
+		{"valid", `{` + valid + `}`, "", nil},
+		{"valid with tags", `{` + valid + `,"tags":["angry","typos"]}`, "", nil},
+		{"unknown field", `{` + valid + `,"priority":"high"}`, "", semanticErrAt("/priority", json.ErrUnknownName)},
 		{"missing complaint", `{"id":"x","source":"generated","lang":"en","subject":"s","body":"b",` +
-			`"expected_category":"billing","expected_urgency":2}`, "expected_complaint is missing"},
+			`"expected_category":"billing","expected_urgency":2}`, "expected_complaint is missing", nil},
 		{"missing urgency", `{"id":"x","source":"generated","lang":"en","subject":"s","body":"b",` +
-			`"expected_category":"billing","expected_complaint":true}`, "expected_urgency is missing"},
-		{"bad category", strings.Replace(`{`+valid+`}`, `"billing"`, `"sales"`, 1), "expected_category"},
-		{"urgency too high", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":4`, 1), "outside"},
-		{"urgency negative", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":-1`, 1), "outside"},
-		{"urgency not an integer", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":1.5`, 1), "cannot unmarshal"},
-		{"urgency as string", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":"high"`, 1), "cannot unmarshal"},
-		{"bad lang", strings.Replace(`{`+valid+`}`, `"lang":"en"`, `"lang":"ru"`, 1), "lang"},
-		{"bad source", strings.Replace(`{`+valid+`}`, `"source":"generated"`, `"source":"twitter"`, 1), "source"},
-		{"blank subject", strings.Replace(`{`+valid+`}`, `"subject":"s"`, `"subject":"  "`, 1), "subject is blank"},
-		{"long subject", strings.Replace(`{`+valid+`}`, `"subject":"s"`, `"subject":"`+strings.Repeat("я", 201)+`"`, 1), "more than 200"},
-		{"long body", strings.Replace(`{`+valid+`}`, `"body":"b"`, `"body":"`+strings.Repeat("b", 5001)+`"`, 1), "more than 5000"},
-		{"unknown tag", `{` + valid + `,"tags":["rude"]}`, "tag"},
-		{"repeated tag", `{` + valid + `,"tags":["angry","angry"]}`, "repeated"},
-		{"duplicate name", `{` + valid + `,"lang":"uk"}`, "duplicate"},
-		{"two values on a line", `{` + valid + `}{}`, "after top-level value"},
+			`"expected_category":"billing","expected_complaint":true}`, "expected_urgency is missing", nil},
+		{"bad category", strings.Replace(`{`+valid+`}`, `"billing"`, `"sales"`, 1), "expected_category", nil},
+		{"urgency too high", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":4`, 1), "outside", nil},
+		{"urgency negative", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":-1`, 1), "outside", nil},
+		{"urgency not an integer", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":1.5`, 1), "", notAnInt("/expected_urgency", jsontext.Kind('0'))},
+		{"urgency as string", strings.Replace(`{`+valid+`}`, `"expected_urgency":2`, `"expected_urgency":"high"`, 1), "", notAnInt("/expected_urgency", jsontext.Kind('"'))},
+		{"bad lang", strings.Replace(`{`+valid+`}`, `"lang":"en"`, `"lang":"ru"`, 1), "lang", nil},
+		{"bad source", strings.Replace(`{`+valid+`}`, `"source":"generated"`, `"source":"twitter"`, 1), "source", nil},
+		{"blank subject", strings.Replace(`{`+valid+`}`, `"subject":"s"`, `"subject":"  "`, 1), "subject is blank", nil},
+		{"long subject", strings.Replace(`{`+valid+`}`, `"subject":"s"`, `"subject":"`+strings.Repeat("я", 201)+`"`, 1), "more than 200", nil},
+		{"long body", strings.Replace(`{`+valid+`}`, `"body":"b"`, `"body":"`+strings.Repeat("b", 5001)+`"`, 1), "more than 5000", nil},
+		{"unknown tag", `{` + valid + `,"tags":["rude"]}`, "tag", nil},
+		{"repeated tag", `{` + valid + `,"tags":["angry","angry"]}`, "repeated", nil},
+		{"duplicate name", `{` + valid + `,"lang":"uk"}`, "", syntacticErrAt("/lang", int64(len(`{`+valid+`,`)), jsontext.ErrDuplicateName)},
+		{"two values on a line", `{` + valid + `}{}`, "", syntacticErrAt("", int64(len(`{`+valid+`}`)), nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rows, err := Read(strings.NewReader(tt.line + "\n"))
-			if tt.wantErr == "" {
+			switch {
+			case tt.isErr != nil:
+				if !tt.isErr(err) {
+					t.Fatalf("Read() error = %v, want a decode error for this case", err)
+				}
+			case tt.wantErr != "":
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Read() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+			default:
 				if err != nil || len(rows) != 1 {
 					t.Fatalf("Read() = %d rows, %v; want 1 row", len(rows), err)
 				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("Read() error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// json/v2 deliberately varies its error text between processes ("cannot" or "unable to"),
+// so decode errors are matched by type and location instead.
+
+// notAnInt matches a json/v2 error for a JSON value of kind at pointer that does not decode into an int.
+func notAnInt(pointer jsontext.Pointer, kind jsontext.Kind) func(error) bool {
+	return func(err error) bool {
+		var se *json.SemanticError
+		return errors.As(err, &se) && se.JSONPointer == pointer && se.JSONKind == kind && se.GoType == reflect.TypeFor[int]()
+	}
+}
+
+// semanticErrAt matches a json/v2 semantic error at pointer that wraps target.
+func semanticErrAt(pointer jsontext.Pointer, target error) func(error) bool {
+	return func(err error) bool {
+		var se *json.SemanticError
+		return errors.As(err, &se) && se.JSONPointer == pointer && errors.Is(se.Err, target)
+	}
+}
+
+// syntacticErrAt matches a jsontext syntactic error at pointer and byte offset that wraps target, if target is not nil.
+func syntacticErrAt(pointer jsontext.Pointer, offset int64, target error) func(error) bool {
+	return func(err error) bool {
+		var se *jsontext.SyntacticError
+		return errors.As(err, &se) && se.JSONPointer == pointer && se.ByteOffset == offset &&
+			(target == nil || errors.Is(se.Err, target))
 	}
 }
 
