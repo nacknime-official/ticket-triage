@@ -24,7 +24,7 @@ import (
 // postgresImage matches the Postgres service in compose.yaml.
 const postgresImage = "pgvector/pgvector:0.8.7-pg16"
 
-var tables = []string{"classifications", "stream_tokens", "tickets"}
+var tables = []string{"classifications", "outbox", "stream_tokens", "tickets"}
 
 // startPostgres runs a fresh Postgres container for one test and returns its
 // connection string.

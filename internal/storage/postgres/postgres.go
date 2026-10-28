@@ -10,9 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Querier runs statements. *pgxpool.Pool, *pgx.Conn and pgx.Tx all satisfy
-// it, so a repository built on a pgx.Tx from WithTx joins that transaction.
+// Querier runs statements and starts transactions. *pgxpool.Pool, *pgx.Conn
+// and pgx.Tx all satisfy it, so a repository built on a pgx.Tx from WithTx
+// joins that transaction; there, Begin starts a savepoint.
 type Querier interface {
+	Beginner
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

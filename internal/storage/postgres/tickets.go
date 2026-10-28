@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/nacknime-official/ticket-triage/internal/outbox"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
@@ -16,12 +17,34 @@ var _ ticket.Repository = (*Tickets)(nil)
 
 // Tickets stores tickets in the tickets table.
 type Tickets struct {
-	q Querier
+	q              Querier
+	submittedTopic string
 }
 
 // NewTickets returns a ticket repository that runs its statements on q.
-func NewTickets(q Querier) *Tickets {
-	return &Tickets{q: q}
+// Submit writes the Submitted event of each new ticket to the outbox for
+// submittedTopic, the Kafka topic the relay publishes it to.
+func NewTickets(q Querier, submittedTopic string) *Tickets {
+	return &Tickets{q: q, submittedTopic: submittedTopic}
+}
+
+// Submit inserts t and an outbox row with its ticket.Submitted event, keyed by
+// the ticket id, in one transaction.
+func (r *Tickets) Submit(ctx context.Context, t ticket.Ticket) error {
+	if r.submittedTopic == "" {
+		return errors.New("postgres: submit ticket: no submitted topic configured")
+	}
+	payload, err := ticket.SubmittedOf(t).Marshal()
+	if err != nil {
+		return err
+	}
+	msg := outbox.Message{Topic: r.submittedTopic, Key: []byte(t.ID.String()), Payload: payload}
+	return WithTx(ctx, r.q, func(tx pgx.Tx) error {
+		if err := NewTickets(tx, r.submittedTopic).Create(ctx, t); err != nil {
+			return err
+		}
+		return NewOutbox(tx).Add(ctx, msg)
+	})
 }
 
 const insertTicket = `

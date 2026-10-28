@@ -64,7 +64,7 @@ func TestTriageApply(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	store := postgres.NewTriageStore(pool)
-	tickets := postgres.NewTickets(pool)
+	tickets := postgres.NewTickets(pool, submittedTopic)
 	ctx := t.Context()
 	tk := createTicket(t, tickets, newTicket(t))
 	at := tk.CreatedAt.Add(2 * time.Second)
@@ -160,7 +160,7 @@ func TestTriageSpentSince(t *testing.T) {
 	pool := newPool(t)
 	store := postgres.NewTriageStore(pool)
 	ctx := t.Context()
-	tk := createTicket(t, postgres.NewTickets(pool), newTicket(t))
+	tk := createTicket(t, postgres.NewTickets(pool, submittedTopic), newTicket(t))
 
 	midnight := time.Now().UTC().Truncate(24 * time.Hour)
 	if spent, err := store.SpentSince(ctx, midnight); err != nil || spent != 0 {
@@ -224,7 +224,7 @@ func (b *barrier) Classify(ctx context.Context, in classifier.Input) (classifier
 func TestProcessConcurrent(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
-	tickets := postgres.NewTickets(pool)
+	tickets := postgres.NewTickets(pool, submittedTopic)
 	ctx := t.Context()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := triage.Config{Thresholds: classifier.DefaultThresholds(), DailyBudgetUSD: 1}

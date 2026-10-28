@@ -25,6 +25,9 @@ import (
 // postgresImage matches the Postgres service in compose.yaml.
 const postgresImage = "pgvector/pgvector:0.8.7-pg16"
 
+// submittedTopic is the outbox topic Tickets.Submit writes to.
+const submittedTopic = "tickets.submitted"
+
 // newPool starts a fresh Postgres container, applies every migration and
 // returns a pool connected to it.
 func newPool(t *testing.T) *pgxpool.Pool {
@@ -100,7 +103,7 @@ func asReal(v float64) float64 { return float64(float32(v)) }
 func TestTicketRoundTrip(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
-	repo := postgres.NewTickets(pool)
+	repo := postgres.NewTickets(pool, submittedTopic)
 
 	classified := newTicket(t)
 	classified.Status = ticket.StatusClassified
@@ -191,7 +194,7 @@ func deref(p *string) string {
 
 func TestTicketCreateDuplicate(t *testing.T) {
 	t.Parallel()
-	repo := postgres.NewTickets(newPool(t))
+	repo := postgres.NewTickets(newPool(t), submittedTopic)
 	tk := createTicket(t, repo, newTicket(t))
 	if err := repo.Create(t.Context(), tk); err == nil {
 		t.Fatal("second Create with the same id succeeded, want an error")
@@ -200,7 +203,7 @@ func TestTicketCreateDuplicate(t *testing.T) {
 
 func TestTicketGetNotFound(t *testing.T) {
 	t.Parallel()
-	repo := postgres.NewTickets(newPool(t))
+	repo := postgres.NewTickets(newPool(t), submittedTopic)
 	createTicket(t, repo, newTicket(t))
 
 	_, err := repo.Get(t.Context(), uuid.NewV7())
@@ -211,7 +214,7 @@ func TestTicketGetNotFound(t *testing.T) {
 
 func TestCountPending(t *testing.T) {
 	t.Parallel()
-	repo := postgres.NewTickets(newPool(t))
+	repo := postgres.NewTickets(newPool(t), submittedTopic)
 	ctx := t.Context()
 
 	count := func() int {
@@ -243,7 +246,7 @@ func TestCountPending(t *testing.T) {
 // reads back from Postgres.
 func TestServiceRoundTrip(t *testing.T) {
 	t.Parallel()
-	svc := ticket.NewService(postgres.NewTickets(newPool(t)), ticket.Config{})
+	svc := ticket.NewService(postgres.NewTickets(newPool(t), submittedTopic), ticket.Config{})
 	ctx := t.Context()
 
 	submitted, token, err := svc.Submit(ctx, "Login", "I cannot log in since this morning.")
@@ -281,7 +284,7 @@ func TestWithTx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tk := newTicket(t)
 			err := postgres.WithTx(ctx, pool, func(tx pgx.Tx) error {
-				if err := postgres.NewTickets(tx).Create(ctx, tk); err != nil {
+				if err := postgres.NewTickets(tx, submittedTopic).Create(ctx, tk); err != nil {
 					return err
 				}
 				return tt.fnErr
@@ -289,7 +292,7 @@ func TestWithTx(t *testing.T) {
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("WithTx error = %v, want %v", err, tt.wantErr)
 			}
-			_, err = postgres.NewTickets(pool).Get(ctx, tk.ID)
+			_, err = postgres.NewTickets(pool, submittedTopic).Get(ctx, tk.ID)
 			if gotRow := err == nil; gotRow != tt.wantRow {
 				t.Fatalf("ticket visible after WithTx = %v (Get error %v), want %v", gotRow, err, tt.wantRow)
 			}
@@ -305,13 +308,13 @@ func TestWithTx(t *testing.T) {
 				}
 			}()
 			_ = postgres.WithTx(ctx, pool, func(tx pgx.Tx) error {
-				if err := postgres.NewTickets(tx).Create(ctx, tk); err != nil {
+				if err := postgres.NewTickets(tx, submittedTopic).Create(ctx, tk); err != nil {
 					return err
 				}
 				panic("boom")
 			})
 		}()
-		if _, err := postgres.NewTickets(pool).Get(ctx, tk.ID); !errors.Is(err, ticket.ErrNotFound) {
+		if _, err := postgres.NewTickets(pool, submittedTopic).Get(ctx, tk.ID); !errors.Is(err, ticket.ErrNotFound) {
 			t.Fatalf("Get after panicking tx error = %v, want ticket.ErrNotFound", err)
 		}
 		// The pool must not have lost the connection to an open transaction.
@@ -324,7 +327,7 @@ func TestWithTx(t *testing.T) {
 func TestStreamTokenConsume(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
-	tickets := postgres.NewTickets(pool)
+	tickets := postgres.NewTickets(pool, submittedTopic)
 	tokens := postgres.NewStreamTokens(pool)
 	ctx := t.Context()
 	owner := createTicket(t, tickets, newTicket(t)).ID
@@ -362,7 +365,7 @@ func TestStreamTokenConcurrentConsume(t *testing.T) {
 	pool := newPool(t)
 	tokens := postgres.NewStreamTokens(pool)
 	ctx := t.Context()
-	id := createTicket(t, postgres.NewTickets(pool), newTicket(t)).ID
+	id := createTicket(t, postgres.NewTickets(pool, submittedTopic), newTicket(t)).ID
 
 	const consumers = 2
 	for round := range 20 {
@@ -403,7 +406,7 @@ func TestStreamTokenExpiry(t *testing.T) {
 	pool := newPool(t)
 	tokens := postgres.NewStreamTokens(pool)
 	ctx := t.Context()
-	id := createTicket(t, postgres.NewTickets(pool), newTicket(t)).ID
+	id := createTicket(t, postgres.NewTickets(pool, submittedTopic), newTicket(t)).ID
 
 	_, hash := ticket.NewToken()
 	const ttl = 50 * time.Millisecond

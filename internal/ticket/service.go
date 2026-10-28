@@ -22,8 +22,10 @@ var (
 
 // Repository is the storage the Service needs.
 type Repository interface {
-	// Create stores a new ticket.
-	Create(ctx context.Context, t Ticket) error
+	// Submit stores the new ticket t together with its Submitted event, in
+	// one transaction, so the event is published if and only if the ticket
+	// is stored (README §4.2: no dual writes).
+	Submit(ctx context.Context, t Ticket) error
 	// Get returns the ticket with the id, or an error wrapping ErrNotFound.
 	Get(ctx context.Context, id uuid.UUID) (Ticket, error)
 	// CountPending returns the number of tickets in StatusPending.
@@ -64,7 +66,7 @@ func NewService(repo Repository, cfg Config) *Service {
 }
 
 // Submit validates the input, refuses it while the pending cap is reached,
-// and stores a new pending ticket. The returned token is the only copy of
+// and stores a new pending ticket along with its Submitted event. The returned token is the only copy of
 // the plaintext access token; only its hash is stored.
 //
 // The cap is a soft limit: concurrent submits that count before either
@@ -94,8 +96,8 @@ func (s *Service) Submit(ctx context.Context, subject, body string) (Ticket, Tok
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := s.repo.Create(ctx, t); err != nil {
-		return Ticket{}, Token{}, fmt.Errorf("ticket: create %s: %w", t.ID, err)
+	if err := s.repo.Submit(ctx, t); err != nil {
+		return Ticket{}, Token{}, fmt.Errorf("ticket: submit %s: %w", t.ID, err)
 	}
 	return t, token, nil
 }
