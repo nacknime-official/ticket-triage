@@ -522,7 +522,8 @@ T22 does not depend on code and can start any time.
 | `kafka` | `apache/kafka:4.3.2`, single node, KRaft combined mode | `localhost:29092` | `kafka:9092` |
 | `kafka-ui` (optional, profile `ui`) | `kafbat/kafka-ui:v1.5.0` | <http://localhost:8081> | — |
 
-- `make up` starts Postgres and Kafka and waits for their healthchecks (`pg_isready`, `kafka-broker-api-versions.sh`).
+- `make up` starts Postgres and Kafka, waits for their healthchecks (`pg_isready`, `kafka-broker-api-versions.sh`),
+  then runs `cmd/kafka-setup` to create the topics.
 - `docker compose --profile ui up -d` adds the Kafka UI. `make down` stops everything, UI included.
 - Data lives in the named volumes `postgres-data` and `kafka-data`; `docker compose down -v` deletes it.
 - Ports bind to `127.0.0.1` only. Topic auto-creation is off; topics come from `cmd/kafka-setup` (T14).
