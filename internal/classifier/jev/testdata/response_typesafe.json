@@ -1,0 +1,35 @@
+{
+  "model": "jev-1.14.0",
+  "answers": {
+    "is_complaint": {
+      "type": "noul",
+      "noul": 0.12
+    },
+    "category": {
+      "choice": "technical",
+      "probabilities": {
+        "billing": 0.02,
+        "technical": 0.88,
+        "account": 0.05,
+        "feature_request": 0.03,
+        "other": 0.02
+      },
+      "confidence": 0.79
+    },
+    "urgency": {
+      "score": 1.2,
+      "legend": [
+        "No time pressure: general question or feedback",
+        "Normal: an issue the customer wants solved but can work around",
+        "High: blocks the customer's work or involves money already lost",
+        "Critical: outage, security incident, data loss, or legal threat"
+      ],
+      "probabilities": [0.1, 0.62, 0.26, 0.02],
+      "confidence": 0.55
+    }
+  },
+  "usage": {
+    "input_tokens": 452,
+    "output_tokens": 0
+  }
+}
