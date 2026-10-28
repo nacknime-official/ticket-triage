@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 	"github.com/nacknime-official/ticket-triage/internal/storage/postgres"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
@@ -63,7 +65,7 @@ func okResult() classifier.Result {
 func TestTriageApply(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
-	store := postgres.NewTriageStore(pool)
+	store := postgres.NewTriageStore(pool, eventsTopic)
 	tickets := postgres.NewTickets(pool, submittedTopic)
 	ctx := t.Context()
 	tk := createTicket(t, tickets, newTicket(t))
@@ -83,6 +85,9 @@ func TestTriageApply(t *testing.T) {
 	}
 	if ok, err := store.Apply(ctx, failed); err != nil || !ok {
 		t.Fatalf("Apply(pending) = %v, %v; want true", ok, err)
+	}
+	if events := statusEvents(t, pool); len(events) != 0 {
+		t.Fatalf("status events after a run that kept the ticket pending: %+v, want none", events)
 	}
 	got, err := tickets.Get(ctx, tk.ID)
 	if err != nil {
@@ -121,12 +126,31 @@ func TestTriageApply(t *testing.T) {
 	if priority != "high" {
 		t.Errorf("priority = %q, want high", priority)
 	}
+	events := statusEvents(t, pool)
+	if len(events) != 1 {
+		t.Fatalf("status events after classifying = %d, want 1", len(events))
+	}
+	if events[0].Key != tk.ID.String() {
+		t.Errorf("status event key = %q, want ticket id %s", events[0].Key, tk.ID)
+	}
+	ev, err := ticket.UnmarshalStatusChanged([]byte(events[0].Payload))
+	if err != nil {
+		t.Fatalf("status event payload %s: %v", events[0].Payload, err)
+	}
+	if ev.TicketID != tk.ID || ev.Status != ticket.StatusClassified || ev.StatusReason != nil ||
+		ev.Category == nil || *ev.Category != "billing" || ev.Priority == nil || *ev.Priority != "high" ||
+		ev.IsComplaint == nil || !*ev.IsComplaint || ev.Message != got.Message() || !ev.At.Equal(done.At) {
+		t.Errorf("status event = %s", events[0].Payload)
+	}
 
 	// Once final, nothing else is written.
 	again := done
 	again.Calls = []triage.Call{{Attempt: 4, Outcome: triage.CallOK, Result: res}}
 	if ok, err := store.Apply(ctx, again); err != nil || ok {
 		t.Fatalf("Apply on a final ticket = %v, %v; want false", ok, err)
+	}
+	if events := statusEvents(t, pool); len(events) != 1 {
+		t.Fatalf("status events after a 0-row update = %d, want still 1", len(events))
 	}
 
 	audit := readAudit(t, pool, tk.ID)
@@ -155,10 +179,49 @@ func TestTriageApply(t *testing.T) {
 	}
 }
 
+// statusEvents returns the outbox rows on eventsTopic.
+func statusEvents(t *testing.T, pool *pgxpool.Pool) []outboxRow {
+	t.Helper()
+	var events []outboxRow
+	for _, r := range outboxRows(t, pool) {
+		if r.Topic == eventsTopic {
+			events = append(events, r)
+		}
+	}
+	return events
+}
+
+func TestTriageApplyWithoutEventsTopic(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	store := postgres.NewTriageStore(pool, "")
+	ctx := t.Context()
+	tk := createTicket(t, postgres.NewTickets(pool, submittedTopic), newTicket(t))
+
+	// Keeping the ticket pending writes no event, so it needs no topic.
+	pending := triage.Update{TicketID: tk.ID, Status: ticket.StatusPending, At: time.Now().UTC()}
+	if ok, err := store.Apply(ctx, pending); err != nil || !ok {
+		t.Fatalf("Apply(pending) = %v, %v; want true", ok, err)
+	}
+	final := triage.Update{
+		TicketID: tk.ID, Status: ticket.StatusNeedsHuman, Reason: ticket.ReasonBudgetExhausted, At: time.Now().UTC(),
+	}
+	if ok, err := store.Apply(ctx, final); err == nil || ok {
+		t.Fatalf("Apply(needs_human) without an events topic = %v, %v; want an error", ok, err)
+	}
+	got, err := postgres.NewTickets(pool, submittedTopic).Get(ctx, tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != ticket.StatusPending {
+		t.Errorf("status after a failed Apply = %q, want pending", got.Status)
+	}
+}
+
 func TestTriageSpentSince(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
-	store := postgres.NewTriageStore(pool)
+	store := postgres.NewTriageStore(pool, eventsTopic)
 	ctx := t.Context()
 	tk := createTicket(t, postgres.NewTickets(pool, submittedTopic), newTicket(t))
 
@@ -220,7 +283,8 @@ func (b *barrier) Classify(ctx context.Context, in classifier.Input) (classifier
 }
 
 // TestProcessConcurrent runs two Process calls on one ticket at once: exactly
-// one wins the conditional update, and only the winner's audit row is kept.
+// one wins the conditional update, and only the winner's audit row and status
+// event are kept.
 func TestProcessConcurrent(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
@@ -232,7 +296,7 @@ func TestProcessConcurrent(t *testing.T) {
 	const workers = 2
 	for round := range 20 {
 		tk := createTicket(t, tickets, newTicket(t))
-		p := triage.NewProcessor(postgres.NewTriageStore(pool), newBarrier(workers), cfg, log)
+		p := triage.NewProcessor(postgres.NewTriageStore(pool, eventsTopic), newBarrier(workers), cfg, log)
 
 		outs := make([]triage.Outcome, workers)
 		errs := make([]error, workers)
@@ -263,12 +327,21 @@ func TestProcessConcurrent(t *testing.T) {
 		if audit := readAudit(t, pool, tk.ID); len(audit) != 1 || audit[0].outcome != "ok" {
 			t.Fatalf("round %d: audit rows %+v, want exactly the winner's", round, audit)
 		}
+		var events int
+		for _, e := range statusEvents(t, pool) {
+			if e.Key == tk.ID.String() {
+				events++
+			}
+		}
+		if events != 1 {
+			t.Fatalf("round %d: %d status events, want exactly the winner's", round, events)
+		}
 	}
 
 	// A third Process on a finished ticket skips before calling the classifier.
 	tk := createTicket(t, tickets, newTicket(t))
 	fake := &classifier.Fake{}
-	p := triage.NewProcessor(postgres.NewTriageStore(pool), fake, cfg, log)
+	p := triage.NewProcessor(postgres.NewTriageStore(pool, eventsTopic), fake, cfg, log)
 	for i, want := range []triage.Kind{triage.Done, triage.Skipped} {
 		out, err := p.Process(ctx, tk.ID.String())
 		if err != nil || out.Kind != want {

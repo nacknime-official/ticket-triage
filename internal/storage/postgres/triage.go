@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/nacknime-official/ticket-triage/internal/outbox"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 	"github.com/nacknime-official/ticket-triage/internal/triage"
 )
@@ -23,14 +25,18 @@ type TriageDB interface {
 }
 
 // TriageStore is the storage of triage.Processor: ticket reads, the daily
-// spend, and the result write with its classifications audit rows.
+// spend, and the result write with its classifications audit rows and status
+// event.
 type TriageStore struct {
-	db TriageDB
+	db          TriageDB
+	eventsTopic string
 }
 
-// NewTriageStore returns a triage store on db.
-func NewTriageStore(db TriageDB) *TriageStore {
-	return &TriageStore{db: db}
+// NewTriageStore returns a triage store on db. Apply writes the status event
+// of each ticket that leaves pending to the outbox for eventsTopic, the Kafka
+// topic the relay publishes it to.
+func NewTriageStore(db TriageDB, eventsTopic string) *TriageStore {
+	return &TriageStore{db: db, eventsTopic: eventsTopic}
 }
 
 // Ticket implements triage.Store.
@@ -72,8 +78,19 @@ INSERT INTO classifications (
     complaint_p, category, category_confidence, urgency, urgency_confidence, raw_response
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
 
-// Apply implements triage.Store.
+// Apply implements triage.Store. An update that moves the ticket out of
+// pending also writes its ticket.StatusChanged event, keyed by the ticket id,
+// to the outbox in the same transaction; an update that matches no row or
+// keeps the ticket pending writes no event.
 func (s *TriageStore) Apply(ctx context.Context, u triage.Update) (bool, error) {
+	var event *outbox.Message
+	if u.Status != ticket.StatusPending {
+		m, err := s.statusEvent(u)
+		if err != nil {
+			return false, err
+		}
+		event = &m
+	}
 	applied := false
 	err := WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		n, err := updateTicket(ctx, tx, u)
@@ -83,12 +100,35 @@ func (s *TriageStore) Apply(ctx context.Context, u triage.Update) (bool, error) 
 		if err := insertCalls(ctx, tx, u.TicketID, u.Calls); err != nil {
 			return err
 		}
-		// T19: the status event of a final update goes to the outbox here, in
-		// this transaction.
+		if event != nil {
+			if err := NewOutbox(tx).Add(ctx, *event); err != nil {
+				return err
+			}
+		}
 		applied = true
 		return nil
 	})
 	return applied, err
+}
+
+// statusEvent returns the outbox message with the ticket.StatusChanged event
+// of a final update.
+func (s *TriageStore) statusEvent(u triage.Update) (outbox.Message, error) {
+	if s.eventsTopic == "" {
+		return outbox.Message{}, errors.New("postgres: apply triage update: no events topic configured")
+	}
+	payload, err := ticket.StatusChangedOf(ticket.Ticket{
+		ID: u.TicketID, Status: u.Status, StatusReason: u.Reason, Classification: u.Classification, UpdatedAt: u.At,
+	}).Marshal()
+	if err != nil {
+		return outbox.Message{}, err
+	}
+	return outbox.Message{
+		Topic:   s.eventsTopic,
+		Key:     []byte(u.TicketID.String()),
+		Payload: payload,
+		Headers: map[string]string{"type": ticket.StatusChangedType},
+	}, nil
 }
 
 func updateTicket(ctx context.Context, tx pgx.Tx, u triage.Update) (int64, error) {
