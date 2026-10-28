@@ -23,8 +23,10 @@ lint:
 
 check: build vet test lint
 
+# Topics are created once Kafka is healthy; kafka-setup is idempotent.
 up:
 	docker compose up -d --wait
+	go run ./cmd/kafka-setup
 
 # All profiles, so the optional kafka-ui container is removed too.
 down:
