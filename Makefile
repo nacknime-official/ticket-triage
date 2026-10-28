@@ -26,5 +26,6 @@ check: build vet test lint
 up:
 	docker compose up -d --wait
 
+# All profiles, so the optional kafka-ui container is removed too.
 down:
-	docker compose down
+	docker compose --profile "*" down

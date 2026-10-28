@@ -1,0 +1,80 @@
+# Local stack for development: `make up` / `make down`.
+# Ports bind to 127.0.0.1 only; the credentials below are local defaults, not secrets.
+name: ticket-triage
+
+services:
+  postgres:
+    # Postgres 16 with pgvector, kept for the FAQ ingest later in the roadmap.
+    image: pgvector/pgvector:0.8.7-pg16
+    environment:
+      # Must match DATABASE_URL in .env.example.
+      POSTGRES_USER: triage
+      POSTGRES_PASSWORD: triage
+      POSTGRES_DB: triage
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # TCP, not the socket: the init-time server listens only on the socket.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "triage", "-d", "triage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  kafka:
+    # Single-node Kafka in KRaft combined mode (broker + controller).
+    # Environment variables follow the apache/kafka image docs (docker/examples/README.md):
+    # each KAFKA_* maps to a server property with "." replaced by "_".
+    image: apache/kafka:4.3.2
+    hostname: kafka
+    environment:
+      CLUSTER_ID: 5hl3cknzQ22P3WsmQPy2cg
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # PLAINTEXT is for containers (kafka:9092), PLAINTEXT_HOST for the host (localhost:29092).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Internal topics default to replication factor 3, which one node cannot satisfy.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are created explicitly by cmd/kafka-setup.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # The image ships this directory owned by its non-root user, so the volume stays writable.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "127.0.0.1:29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 20s
+      retries: 10
+      start_period: 30s
+
+  kafka-ui:
+    # Optional web UI on http://localhost:8081: `docker compose --profile ui up -d`.
+    image: kafbat/kafka-ui:v1.5.0
+    profiles: [ui]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  kafka-data:
