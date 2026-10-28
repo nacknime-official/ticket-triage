@@ -38,7 +38,7 @@ func fakeClient(t *testing.T, cfg Config, rt roundTripFunc) *Client {
 }
 
 func TestRateLimit(t *testing.T) {
-	body := fixture(t, "response_openrouter.json")
+	body := live(t, "ok.json").body()
 	synctest.Test(t, func(t *testing.T) {
 		var (
 			mu    sync.Mutex
@@ -68,7 +68,7 @@ func TestRateLimit(t *testing.T) {
 }
 
 func TestRateLimitHonorsContext(t *testing.T) {
-	body := fixture(t, "response_openrouter.json")
+	body := live(t, "ok.json").body()
 	synctest.Test(t, func(t *testing.T) {
 		cfg := testConfig("http://jev.test")
 		cfg.RateLimit = 0.1 // one call per 10s
@@ -92,7 +92,7 @@ func TestRateLimitHonorsContext(t *testing.T) {
 }
 
 func TestConcurrencyCap(t *testing.T) {
-	body := fixture(t, "response_openrouter.json")
+	body := live(t, "ok.json").body()
 	synctest.Test(t, func(t *testing.T) {
 		var inFlight, peak atomic.Int32
 		release := make(chan struct{})

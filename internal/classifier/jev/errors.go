@@ -75,8 +75,10 @@ func statusError(status int, h http.Header, body []byte, now time.Time) *Error {
 }
 
 // parseRetryAfter reads a Retry-After value: delay seconds or an HTTP date.
-// [unverified] Whether Jev sends it on 429 or 529 is unknown; a missing,
-// malformed or past value gives 0 and the caller's own backoff applies.
+// [unverified] Whether Jev sends it on 429 or 529 is unknown: cmd/jevprobe
+// (T12) never got either, and the 400 and 401 answers it saw carry none. A
+// missing, malformed or past value gives 0 and the caller's own backoff
+// applies.
 func parseRetryAfter(v string, now time.Time) time.Duration {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -98,27 +100,44 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 var safeCode = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
 // errorCode returns the provider's error code from an error body, or "".
-// [unverified] OpenRouter is expected to answer {"error": {"code": ..., "message": ...}}
-// and the direct API's format is unknown. Only a short code made of safe
-// characters is kept; the message is dropped because it may quote the
-// request.
+// Seen live (cmd/jevprobe, T12): OpenRouter answers
+// {"error": {"code": <HTTP status>, "message": ...}} on 400 and 401, and the
+// direct API {"detail": {"error_type": ..., "message": ...}} on 401. Only a
+// short code made of safe characters is kept; the message is dropped because
+// it may quote the request (a validation message names the offending field).
 func errorCode(body []byte) string {
 	var w struct {
-		Error struct {
-			Code jsontext.Value `json:"code"`
-		} `json:"error"`
+		Error  jsontext.Value `json:"error"`
+		Detail jsontext.Value `json:"detail"`
 	}
-	if json.Unmarshal(body, &w) != nil || len(w.Error.Code) == 0 {
+	if json.Unmarshal(body, &w) != nil {
+		return ""
+	}
+	var (
+		e struct {
+			Code jsontext.Value `json:"code"`
+		}
+		d struct {
+			ErrorType jsontext.Value `json:"error_type"`
+		}
+		raw jsontext.Value
+	)
+	switch {
+	case w.Error.Kind() == '{' && json.Unmarshal(w.Error, &e) == nil && len(e.Code) > 0:
+		raw = e.Code
+	case w.Detail.Kind() == '{' && json.Unmarshal(w.Detail, &d) == nil && len(d.ErrorType) > 0:
+		raw = d.ErrorType
+	default:
 		return ""
 	}
 	var code string
-	switch w.Error.Code.Kind() {
+	switch raw.Kind() {
 	case '"':
-		if json.Unmarshal(w.Error.Code, &code) != nil {
+		if json.Unmarshal(raw, &code) != nil {
 			return ""
 		}
 	case '0':
-		code = string(w.Error.Code)
+		code = string(raw)
 	}
 	if !safeCode.MatchString(code) {
 		return ""

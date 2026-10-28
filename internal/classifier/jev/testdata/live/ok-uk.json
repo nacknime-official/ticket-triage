@@ -1,0 +1,93 @@
+{
+  "case": "ok",
+  "ticket": "gen-uk-001",
+  "recorded_at": "2026-10-28T20:25:14Z",
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "request": {
+    "model": "typesafe/jev-1.14",
+    "state": {
+      "subject": "Подвійне списання за підписку",
+      "body": "Добрий день! Сьогодні з моєї картки двічі списали 299 грн за місячну підписку. Прошу повернути зайвий платіж."
+    },
+    "questions": {
+      "is_complaint": {
+        "type": "noul",
+        "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?"
+      },
+      "category": {
+        "type": "choice",
+        "instructions": "Which support team should handle the request in `subject` and `body`?",
+        "criteria": {
+          "billing": "Payments, invoices, refunds, double charges, pricing, subscriptions",
+          "technical": "Bugs, errors, outages, performance, integration or API problems",
+          "account": "Login, password, access, profile, account deletion or security of the account",
+          "feature_request": "Suggestions or requests for new functionality",
+          "other": "Anything that fits none of the categories above"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is the request in `subject` and `body` for the customer?",
+        "criteria": [
+          "No time pressure: general question or feedback",
+          "Normal: an issue the customer wants solved but can work around",
+          "High: blocks the customer's work or involves money already lost",
+          "Critical: outage, security incident, data loss, or legal threat"
+        ]
+      }
+    }
+  },
+  "status": 200,
+  "latency_ms": 334,
+  "header": {
+    "content-type": "application/json",
+    "x-generation-id": "gen-dec-1793219114-zk6PbPaYEyUQxCcIsrwA",
+    "x-provider-name": "TypeSafe"
+  },
+  "body": {
+    "model": "typesafe/jev-1.14-20261014",
+    "answers": {
+      "is_complaint": {
+        "type": "noul",
+        "noul": 0.97
+      },
+      "category": {
+        "type": "choice",
+        "choice": "billing",
+        "probabilities": {
+          "billing": 1,
+          "technical": 0,
+          "account": 0,
+          "feature_request": 0,
+          "other": 0
+        },
+        "confidence": 1
+      },
+      "urgency": {
+        "type": "score",
+        "score": 1.96,
+        "legend": {
+          "0": "No time pressure: general question or feedback",
+          "1": "Normal: an issue the customer wants solved but can work around",
+          "2": "High: blocks the customer's work or involves money already lost",
+          "3": "Critical: outage, security incident, data loss, or legal threat"
+        },
+        "probabilities": {
+          "0": 0,
+          "1": 0.04,
+          "2": 0.96,
+          "3": 0
+        },
+        "confidence": 0.96
+      }
+    },
+    "usage": {
+      "input_tokens": 656,
+      "output_tokens": 87,
+      "cost": 0.000027552
+    },
+    "id": "gen-dec-1793219114-zk6PbPaYEyUQxCcIsrwA",
+    "provider": "TypeSafe"
+  }
+}

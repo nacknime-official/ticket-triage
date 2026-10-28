@@ -1,0 +1,93 @@
+{
+  "case": "ok",
+  "ticket": "gen-en-001",
+  "recorded_at": "2026-10-28T20:25:13Z",
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "request": {
+    "model": "typesafe/jev-1.14",
+    "state": {
+      "subject": "Dashboard down for everyone",
+      "body": "Since about 14:00 UTC nobody in our company can load the dashboard, it just shows 'Service Unavailable'. Our whole support team is idle."
+    },
+    "questions": {
+      "is_complaint": {
+        "type": "noul",
+        "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?"
+      },
+      "category": {
+        "type": "choice",
+        "instructions": "Which support team should handle the request in `subject` and `body`?",
+        "criteria": {
+          "billing": "Payments, invoices, refunds, double charges, pricing, subscriptions",
+          "technical": "Bugs, errors, outages, performance, integration or API problems",
+          "account": "Login, password, access, profile, account deletion or security of the account",
+          "feature_request": "Suggestions or requests for new functionality",
+          "other": "Anything that fits none of the categories above"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is the request in `subject` and `body` for the customer?",
+        "criteria": [
+          "No time pressure: general question or feedback",
+          "Normal: an issue the customer wants solved but can work around",
+          "High: blocks the customer's work or involves money already lost",
+          "Critical: outage, security incident, data loss, or legal threat"
+        ]
+      }
+    }
+  },
+  "status": 200,
+  "latency_ms": 282,
+  "header": {
+    "content-type": "application/json",
+    "x-generation-id": "gen-dec-1793219113-TwNqdgdRNhH7jZofLPYi",
+    "x-provider-name": "TypeSafe"
+  },
+  "body": {
+    "model": "typesafe/jev-1.14-20261014",
+    "answers": {
+      "is_complaint": {
+        "type": "noul",
+        "noul": 0.86
+      },
+      "category": {
+        "type": "choice",
+        "choice": "technical",
+        "probabilities": {
+          "billing": 0,
+          "technical": 1,
+          "account": 0,
+          "feature_request": 0,
+          "other": 0
+        },
+        "confidence": 1
+      },
+      "urgency": {
+        "type": "score",
+        "score": 2.99,
+        "legend": {
+          "0": "No time pressure: general question or feedback",
+          "1": "Normal: an issue the customer wants solved but can work around",
+          "2": "High: blocks the customer's work or involves money already lost",
+          "3": "Critical: outage, security incident, data loss, or legal threat"
+        },
+        "probabilities": {
+          "0": 0,
+          "1": 0,
+          "2": 0.01,
+          "3": 0.99
+        },
+        "confidence": 0.99
+      }
+    },
+    "usage": {
+      "input_tokens": 582,
+      "output_tokens": 87,
+      "cost": 0.000024444
+    },
+    "id": "gen-dec-1793219113-TwNqdgdRNhH7jZofLPYi",
+    "provider": "TypeSafe"
+  }
+}

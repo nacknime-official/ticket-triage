@@ -41,7 +41,8 @@ type provider struct {
 
 var providers = map[string]provider{
 	ProviderOpenRouter: {baseURL: "https://openrouter.ai/api", model: func(m string) string { return m }},
-	// [unverified] The direct API is api.typesafe.ai/v1/systemone (README §7).
+	// The direct API answers at api.typesafe.ai/v1/systemone (a 401 for a bad
+	// key, T12); its success format is [unverified] (README §7).
 	ProviderTypeSafe: {baseURL: "https://api.typesafe.ai", model: typeSafeModel},
 }
 

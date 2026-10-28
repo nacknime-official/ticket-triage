@@ -38,6 +38,44 @@ func fixture(t *testing.T, name string) []byte {
 	return b
 }
 
+// recording is a response recorded live by cmd/jevprobe (testdata/live).
+type recording struct {
+	Status int               `json:"status"`
+	Header map[string]string `json:"header"`
+	Body   jsontext.Value    `json:"body"`
+}
+
+func live(t *testing.T, name string) recording {
+	t.Helper()
+	var rec recording
+	if err := json.Unmarshal(fixture(t, filepath.Join("live", name)), &rec); err != nil {
+		t.Fatalf("live/%s: %v", name, err)
+	}
+	return rec
+}
+
+// body returns the response body as it was sent; jevprobe stores a body that
+// is not JSON as a JSON string.
+func (r recording) body() []byte {
+	var s string
+	if r.Body.Kind() == '"' && json.Unmarshal(r.Body, &s) == nil {
+		return []byte(s)
+	}
+	return r.Body
+}
+
+// serveLive starts a server that replays a recorded response.
+func serveLive(t *testing.T, name string) *httptest.Server {
+	t.Helper()
+	rec := live(t, name)
+	h := http.Header{}
+	for k, v := range rec.Header {
+		h.Set(k, v)
+	}
+	srv, _ := serve(t, rec.Status, h, rec.body())
+	return srv
+}
+
 func testConfig(baseURL string) Config {
 	return Config{
 		Provider:             ProviderOpenRouter,
@@ -92,39 +130,78 @@ func serve(t *testing.T, status int, header http.Header, body []byte) (*httptest
 }
 
 func TestClassifyGolden(t *testing.T) {
+	// The openrouter cases replay live recordings; the direct API one is built
+	// by hand (testdata/README.md).
 	tests := []struct {
-		name, provider, fixture string
-		wantWireModel           string
-		want                    classifier.Result
+		name, provider string
+		body           func(*testing.T) []byte
+		wantWireModel  string
+		want           classifier.Result
 	}{
 		{
-			name: "openrouter reports cost", provider: ProviderOpenRouter, fixture: "response_openrouter.json",
+			name: "openrouter english", provider: ProviderOpenRouter, body: liveBody("ok.json"),
 			wantWireModel: "typesafe/jev-1.14",
 			want: classifier.Result{
-				ComplaintP: 0.93, Category: classifier.CategoryBilling, CategoryConfidence: 0.84,
-				Urgency: 2.1, UrgencyConfidence: 0.62,
+				ComplaintP: 0.86, Category: classifier.CategoryTechnical, CategoryConfidence: 1,
+				Urgency: 2.99, UrgencyConfidence: 0.99,
 				Call: classifier.Call{
 					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
-					InputTokens: 447, CostUSD: 0.000019, CostSource: classifier.CostReported,
+					InputTokens: 582, OutputTokens: 87, CostUSD: 0.000024444, CostSource: classifier.CostReported,
 				},
 			},
 		},
 		{
-			name: "typesafe cost is estimated", provider: ProviderTypeSafe, fixture: "response_typesafe.json",
+			name: "openrouter ukrainian", provider: ProviderOpenRouter, body: liveBody("ok-uk.json"),
+			wantWireModel: "typesafe/jev-1.14",
+			want: classifier.Result{
+				ComplaintP: 0.97, Category: classifier.CategoryBilling, CategoryConfidence: 1,
+				Urgency: 1.96, UrgencyConfidence: 0.96,
+				Call: classifier.Call{
+					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
+					InputTokens: 656, OutputTokens: 87, CostUSD: 0.000027552, CostSource: classifier.CostReported,
+				},
+			},
+		},
+		{
+			name: "openrouter decisions api", provider: ProviderOpenRouter, body: liveBody("decisions.json"),
+			wantWireModel: "typesafe/jev-1.14",
+			want: classifier.Result{
+				ComplaintP: 0.86, Category: classifier.CategoryTechnical, CategoryConfidence: 1,
+				Urgency: 2.99, UrgencyConfidence: 0.99,
+				Call: classifier.Call{
+					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
+					InputTokens: 582, OutputTokens: 87, CostUSD: 0.000024444, CostSource: classifier.CostReported,
+				},
+			},
+		},
+		{
+			name: "openrouter score with one level", provider: ProviderOpenRouter, body: liveBody("one-level.json"),
+			wantWireModel: "typesafe/jev-1.14",
+			want: classifier.Result{
+				ComplaintP: 0.86, Category: classifier.CategoryTechnical, CategoryConfidence: 1,
+				Urgency: 0, UrgencyConfidence: 1,
+				Call: classifier.Call{
+					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
+					InputTokens: 524, OutputTokens: 87, CostUSD: 0.000022008, CostSource: classifier.CostReported,
+				},
+			},
+		},
+		{
+			name: "typesafe cost is estimated", provider: ProviderTypeSafe, body: fixtureBody("response_typesafe.json"),
 			wantWireModel: "jev-1.14.0",
 			want: classifier.Result{
 				ComplaintP: 0.12, Category: classifier.CategoryTechnical, CategoryConfidence: 0.79,
 				Urgency: 1.2, UrgencyConfidence: 0.55,
 				Call: classifier.Call{
 					Provider: ProviderTypeSafe, Model: "jev-1.14.0", HTTPStatus: 200,
-					InputTokens: 452, CostUSD: 452 * 0.042 / 1e6, CostSource: classifier.CostEstimated,
+					InputTokens: 452, OutputTokens: 87, CostUSD: 452 * 0.042 / 1e6, CostSource: classifier.CostEstimated,
 				},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv, last := serve(t, http.StatusOK, nil, fixture(t, tt.fixture))
+			srv, last := serve(t, http.StatusOK, nil, tt.body(t))
 			cfg := testConfig(srv.URL)
 			cfg.Provider = tt.provider
 			got, err := newClient(t, cfg).Classify(t.Context(), testInput)
@@ -160,8 +237,16 @@ func TestClassifyGolden(t *testing.T) {
 	}
 }
 
+func liveBody(name string) func(*testing.T) []byte {
+	return func(t *testing.T) []byte { return live(t, name).body() }
+}
+
+func fixtureBody(name string) func(*testing.T) []byte {
+	return func(t *testing.T) []byte { return fixture(t, name) }
+}
+
 func TestRequest(t *testing.T) {
-	srv, last := serve(t, http.StatusOK, nil, fixture(t, "response_openrouter.json"))
+	srv, last := serve(t, http.StatusOK, nil, live(t, "ok.json").body())
 	if _, err := newClient(t, testConfig(srv.URL+"/api/")).Classify(t.Context(), testInput); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +367,51 @@ func TestStatusErrors(t *testing.T) {
 	}
 }
 
+// TestLiveErrors replays the error responses recorded by cmd/jevprobe and
+// checks the mapping, the code, and that the message, which can quote the
+// request, stays out of the error.
+func TestLiveErrors(t *testing.T) {
+	tests := []struct {
+		fixture, provider string
+		want              error
+		wantCode          string
+	}{
+		{"bad-key.json", ProviderOpenRouter, classifier.ErrAuth, "401"},
+		{"unknown-model.json", ProviderOpenRouter, classifier.ErrPermanent, "400"},
+		{"bad-criteria.json", ProviderOpenRouter, classifier.ErrPermanent, "400"},
+		{"bad-json.json", ProviderOpenRouter, classifier.ErrPermanent, "400"},
+		{"bad-key-typesafe.json", ProviderTypeSafe, classifier.ErrAuth, "authentication_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			rec := live(t, tt.fixture)
+			cfg := testConfig(serveLive(t, tt.fixture).URL)
+			cfg.Provider = tt.provider
+			got, err := newClient(t, cfg).Classify(t.Context(), testInput)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Classify() error = %v, want %v", err, tt.want)
+			}
+			var je *Error
+			if !errors.As(err, &je) {
+				t.Fatalf("error %v is not an *Error", err)
+			}
+			if je.code != tt.wantCode || je.HTTPStatus() != rec.Status || je.RetryAfter() != 0 {
+				t.Errorf("Error code %q, status %d, retry after %v, want %q, %d, 0",
+					je.code, je.HTTPStatus(), je.RetryAfter(), tt.wantCode, rec.Status)
+			}
+			// The recorded messages, one per fixture.
+			for _, msg := range []string{"Missing Authentication", "does not exist", "Invalid input", "JSON parsing", "Cannot authenticate"} {
+				if strings.Contains(err.Error(), msg) {
+					t.Errorf("error %q contains the body message %q", err, msg)
+				}
+			}
+			if got.Call.HTTPStatus != rec.Status || got.Call.RawResponse != nil {
+				t.Errorf("Call = %+v, want HTTP %d without a raw response", got.Call, rec.Status)
+			}
+		})
+	}
+}
+
 func TestParseRetryAfter(t *testing.T) {
 	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -313,6 +443,9 @@ func TestErrorCode(t *testing.T) {
 		{`{"error":{"code":{"nested":1}}}`, ""},
 		{`{"error":"overloaded"}`, ""},
 		{`{"detail":"x"}`, ""},
+		{`{"detail":{"error_type":"authentication_error","message":"Cannot authenticate"}}`, "authentication_error"},
+		{`{"detail":[{"loc":["questions"],"msg":"bad"}]}`, ""},
+		{`{"error":{"message":"m"},"detail":{"error_type":"x"}}`, "x"},
 		{`not json`, ""},
 		{``, ""},
 	}
@@ -506,7 +639,7 @@ func TestResponseTooLarge(t *testing.T) {
 }
 
 func TestLogLine(t *testing.T) {
-	srv, _ := serve(t, http.StatusOK, nil, fixture(t, "response_openrouter.json"))
+	srv, _ := serve(t, http.StatusOK, nil, live(t, "ok.json").body())
 	var logs bytes.Buffer
 	cfg := testConfig(srv.URL)
 	cfg.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
@@ -526,9 +659,9 @@ func TestLogLine(t *testing.T) {
 		"msg":           "jev call",
 		"provider":      ProviderOpenRouter,
 		"model":         "typesafe/jev-1.14-20261014",
-		"input_tokens":  447.0,
-		"output_tokens": 0.0,
-		"cost_usd":      0.000019,
+		"input_tokens":  582.0,
+		"output_tokens": 87.0,
+		"cost_usd":      0.000024444,
 		"cost_source":   "reported",
 		"outcome":       "ok",
 		"http_status":   200.0,

@@ -1,0 +1,53 @@
+{
+  "case": "bad-criteria",
+  "ticket": "gen-en-001",
+  "recorded_at": "2026-10-28T20:25:13Z",
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "request": {
+    "model": "typesafe/jev-1.14",
+    "questions": {
+      "category": {
+        "criteria": [
+          "account",
+          "billing",
+          "feature_request",
+          "other",
+          "technical"
+        ],
+        "instructions": "Which support team should handle the request in `subject` and `body`?",
+        "type": "choice"
+      },
+      "is_complaint": {
+        "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?",
+        "type": "noul"
+      },
+      "urgency": {
+        "criteria": [
+          "No time pressure: general question or feedback",
+          "Normal: an issue the customer wants solved but can work around",
+          "High: blocks the customer's work or involves money already lost",
+          "Critical: outage, security incident, data loss, or legal threat"
+        ],
+        "instructions": "How urgent is the request in `subject` and `body` for the customer?",
+        "type": "score"
+      }
+    },
+    "state": {
+      "subject": "Dashboard down for everyone",
+      "body": "Since about 14:00 UTC nobody in our company can load the dashboard, it just shows 'Service Unavailable'. Our whole support team is idle."
+    }
+  },
+  "status": 400,
+  "latency_ms": 31,
+  "header": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "message": "[\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"questions\",\n      \"category\",\n      \"criteria\"\n    ],\n    \"message\": \"Invalid input: expected record, received array\"\n  }\n]",
+      "code": 400
+    },
+    "user_id": "redacted"
+  }
+}
