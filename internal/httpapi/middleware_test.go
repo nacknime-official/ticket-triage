@@ -142,7 +142,7 @@ func TestExtraMiddleware(t *testing.T) {
 	}
 
 	var logs bytes.Buffer
-	h := NewHandler(newFakeService(), newTestLogger(&logs), mark("first"), mark("second"), reject)
+	h := NewHandler(newFakeService(), alwaysReady, newTestLogger(&logs), mark("first"), mark("second"), reject)
 
 	serve(h, postTicket(`{"subject":"s","body":"b"}`, "application/json"))
 	if got := strings.Join(order, ","); got != "first,second" {

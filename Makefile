@@ -4,7 +4,7 @@ GOLANGCI_LINT_VERSION := v2.14.0
 # module's Go version. Override to use an installed binary of the same version.
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-.PHONY: build vet test test-integration lint check up down
+.PHONY: build vet test test-integration lint check up down smoke
 
 build:
 	go build ./...
@@ -31,3 +31,8 @@ up:
 # All profiles, so the optional kafka-ui container is removed too.
 down:
 	docker compose --profile "*" down
+
+# Runs cmd/api against the local stack and checks the HTTP contract; the
+# stack is left running.
+smoke: up
+	./scripts/smoke.sh
