@@ -549,6 +549,8 @@ T22 does not depend on code and can start any time.
 
 - `make up` starts Postgres and Kafka, waits for their healthchecks (`pg_isready`, `kafka-broker-api-versions.sh`),
   then runs `cmd/kafka-setup` to create the topics.
+- `make smoke` runs `make up`, migrates, starts `cmd/api` on `127.0.0.1:18080`, checks the HTTP contract
+  (`scripts/smoke.sh`, needs `curl` and `jq`) and stops the API with SIGTERM. The stack is left running.
 - `docker compose --profile ui up -d` adds the Kafka UI. `make down` stops everything, UI included.
 - Data lives in the named volumes `postgres-data` and `kafka-data`; `docker compose down -v` deletes it.
 - Ports bind to `127.0.0.1` only. Topic auto-creation is off; topics come from `cmd/kafka-setup` (T14).
