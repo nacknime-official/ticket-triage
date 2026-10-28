@@ -102,7 +102,7 @@ func TestRead(t *testing.T) {
 	}{
 		{"valid", `{` + valid + `}`, ""},
 		{"valid with tags", `{` + valid + `,"tags":["angry","typos"]}`, ""},
-		{"unknown field", `{` + valid + `,"priority":"high"}`, "unknown field"},
+		{"unknown field", `{` + valid + `,"priority":"high"}`, "unknown object member"},
 		{"missing complaint", `{"id":"x","source":"generated","lang":"en","subject":"s","body":"b",` +
 			`"expected_category":"billing","expected_urgency":2}`, "expected_complaint is missing"},
 		{"missing urgency", `{"id":"x","source":"generated","lang":"en","subject":"s","body":"b",` +
@@ -119,7 +119,8 @@ func TestRead(t *testing.T) {
 		{"long body", strings.Replace(`{`+valid+`}`, `"body":"b"`, `"body":"`+strings.Repeat("b", 5001)+`"`, 1), "more than 5000"},
 		{"unknown tag", `{` + valid + `,"tags":["rude"]}`, "tag"},
 		{"repeated tag", `{` + valid + `,"tags":["angry","angry"]}`, "repeated"},
-		{"two values on a line", `{` + valid + `}{}`, "more than one"},
+		{"duplicate name", `{` + valid + `,"lang":"uk"}`, "duplicate"},
+		{"two values on a line", `{` + valid + `}{}`, "after top-level value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

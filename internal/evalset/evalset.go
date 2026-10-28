@@ -2,8 +2,7 @@ package evalset
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -122,14 +121,10 @@ func Read(r io.Reader) ([]Row, error) {
 }
 
 func decodeLine(b []byte) (Row, error) {
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
+	// Unmarshal also rejects trailing data, duplicate names and invalid UTF-8.
 	var raw rawRow
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.Unmarshal(b, &raw, json.RejectUnknownMembers(true)); err != nil {
 		return Row{}, err
-	}
-	if dec.More() {
-		return Row{}, errors.New("more than one JSON value on the line")
 	}
 	required := []struct {
 		name    string
@@ -182,13 +177,15 @@ func ReadFile(path string) ([]Row, error) {
 
 // Write validates rows and encodes them as JSONL, one compact row per line, without HTML escaping.
 func Write(w io.Writer, rows []Row) error {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
 	for _, row := range rows {
 		if err := row.Validate(); err != nil {
 			return fmt.Errorf("row %q: %w", row.ID, err)
 		}
-		if err := enc.Encode(row); err != nil {
+		b, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(append(b, '\n')); err != nil {
 			return err
 		}
 	}
