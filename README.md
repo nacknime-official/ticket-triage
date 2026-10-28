@@ -345,7 +345,7 @@ triage,outbox,kafka,notify,storage/postgres,httpapi,config}`, `migrations/`, `te
 | **pgx v5** | Native Postgres driver and pool; encodes and scans stdlib `uuid.UUID` without adapters (verified with v5.11.0) |
 | **goose v3** | SQL migrations embedded with `embed.FS`, run by `cmd/migrate` |
 | **franz-go** (+ `kadm`, `kfake`) | Pure Go (no cgo), full control of manual commit and rebalance (`DisableAutoCommit`, `BlockRebalanceOnPoll`, `CommitRecords`), in-process fake broker for fast tests. Chosen over segmentio/kafka-go (still 0.x, less control) and confluent-kafka-go (cgo) |
-| **Kafka 4.x, KRaft** | No ZooKeeper; single node locally (`apache/kafka` image); compose not yet run **[unverified]** |
+| **Kafka 4.x, KRaft** | No ZooKeeper; single node locally (`apache/kafka` image, see [Local stack](#local-stack)) |
 | **Jev via OpenRouter** | Typed answers with probabilities fit triage better than parsing free text; one OpenRouter key also serves the text LLM in the RAG stage. The captain creates the key and credits. The adapter also supports the direct TypeSafe API |
 | **UUIDv7** for ids | Time-ordered (index locality), in the stdlib. ULID has the same properties but adds a dependency, and the id is not a secret either way |
 | `golang.org/x/time/rate` | Client-side Jev rate limit and per-IP limits. Not stdlib, an accepted dependency |
@@ -506,9 +506,24 @@ T22 does not depend on code and can start any time.
   `/v1/systemone`, whether prepaid credits are required, served model snapshot ids.
 - **Jev quality on Ukrainian** and on surzhyk: unknown until the eval.
 - **Dataset license** for the public ticket dataset; decides whether any of it can be committed.
-- **Local stack** not run yet: `apache/kafka` image environment variables to be checked against its docs in T02.
 - **Limit values** (rate limits, caps, budget, token TTL, text lengths) are proposals to tune.
 - **Metrics:** whether to add a metrics endpoint (e.g. Prometheus) beyond logs and the audit table.
 - **Operator access before login:** the earlier plan had a public `GET /tickets` listing; it is dropped here
   because without login it would expose every ticket. Confirm, or add an operator-only variant.
 - Webhook or email notification only if a "site with its own backend" surface appears.
+
+## Local stack
+
+`compose.yaml` runs the dependencies; the Go binaries run on the host.
+
+| Service | Image | Host address | From containers |
+|---|---|---|---|
+| `postgres` | `pgvector/pgvector:0.8.7-pg16` | `localhost:5432` (user, password, db: `triage`) | `postgres:5432` |
+| `kafka` | `apache/kafka:4.3.2`, single node, KRaft combined mode | `localhost:29092` | `kafka:9092` |
+| `kafka-ui` (optional, profile `ui`) | `kafbat/kafka-ui:v1.5.0` | <http://localhost:8081> | — |
+
+- `make up` starts Postgres and Kafka and waits for their healthchecks (`pg_isready`, `kafka-broker-api-versions.sh`).
+- `docker compose --profile ui up -d` adds the Kafka UI. `make down` stops everything, UI included.
+- Data lives in the named volumes `postgres-data` and `kafka-data`; `docker compose down -v` deletes it.
+- Ports bind to `127.0.0.1` only. Topic auto-creation is off; topics come from `cmd/kafka-setup` (T14).
+- List topics: `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list`.
