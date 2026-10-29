@@ -104,8 +104,9 @@ func TestEndToEnd(t *testing.T) {
 		s.waitFinal(t, id, token)
 		s.proc.wait(t, id, 1)
 		before := s.snapshot(t, id)
-		if before.audit != 1 || before.okAudit != 1 {
-			t.Fatalf("after the first delivery: %d audit rows, %d ok, want 1 and 1", before.audit, before.okAudit)
+		if before.audit != 1 || before.okAudit != 1 || before.events != 1 {
+			t.Fatalf("after the first delivery: %d audit rows, %d ok, %d events, want 1 of each",
+				before.audit, before.okAudit, before.events)
 		}
 		calls := s.fake.Calls()
 
@@ -372,7 +373,7 @@ func startStack(t *testing.T, dsn string, brokers []string) *stack {
 	}
 	undo = append(undo, workerPool.Close)
 	fake := &classifier.Fake{}
-	proc := &recorder{next: triage.NewProcessor(postgres.NewTriageStore(workerPool), fake, triage.Config{
+	proc := &recorder{next: triage.NewProcessor(postgres.NewTriageStore(workerPool, kafka.TopicEvents), fake, triage.Config{
 		Thresholds: classifier.Thresholds{
 			CategoryMinConfidence:  thrCfg.CategoryMinConfidence,
 			UrgencyMinConfidence:   thrCfg.UrgencyMinConfidence,
@@ -588,6 +589,7 @@ func (s *stack) redeliver(t *testing.T, id string) {
 type ticketState struct {
 	row            string // the tickets row as JSON
 	audit, okAudit int    // classifications rows, and those with outcome ok
+	events         int    // tickets.events messages in the outbox
 }
 
 func (s *stack) snapshot(t *testing.T, id string) ticketState {
@@ -595,8 +597,9 @@ func (s *stack) snapshot(t *testing.T, id string) ticketState {
 	var st ticketState
 	err := s.db.QueryRow(t.Context(), `
 SELECT (SELECT to_jsonb(t)::text FROM tickets t WHERE id = $1),
-       count(*), count(*) FILTER (WHERE outcome = 'ok')
-FROM classifications WHERE ticket_id = $1`, id).Scan(&st.row, &st.audit, &st.okAudit)
+       count(*), count(*) FILTER (WHERE outcome = 'ok'),
+       (SELECT count(*) FROM outbox WHERE topic = $2 AND key = $3)
+FROM classifications WHERE ticket_id = $1`, id, kafka.TopicEvents, []byte(id)).Scan(&st.row, &st.audit, &st.okAudit, &st.events)
 	if err != nil {
 		t.Fatalf("snapshot ticket %s: %v", id, err)
 	}
