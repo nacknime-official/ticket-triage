@@ -16,6 +16,8 @@ const (
 	codeUnsupportedMediaType = "unsupported_media_type"
 	codeBacklogFull          = "backlog_full"
 	codeRateLimited          = "rate_limited"
+	codeTooManyStreams       = "too_many_streams"
+	codeStreamsFull          = "streams_full"
 	codeNotReady             = "not_ready"
 	codeInternal             = "internal"
 )

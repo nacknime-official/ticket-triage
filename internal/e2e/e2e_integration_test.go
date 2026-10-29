@@ -34,6 +34,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/kafka"
 	"github.com/nacknime-official/ticket-triage/internal/lifecycle"
 	"github.com/nacknime-official/ticket-triage/internal/logging"
+	"github.com/nacknime-official/ticket-triage/internal/notify"
 	"github.com/nacknime-official/ticket-triage/internal/outbox"
 	"github.com/nacknime-official/ticket-triage/internal/storage/postgres"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
@@ -345,12 +346,16 @@ func startStack(t *testing.T, dsn string, brokers []string) *stack {
 		PerMinute: limits.SubmitRatePerMin,
 		Burst:     limits.SubmitBurst,
 	})
-	handler := httpapi.NewHandler(svc, apiPool, log,
+	streams := httpapi.Streams{
+		Service: ticket.NewStreams(svc, postgres.NewStreamTokens(apiPool), limits.StreamTokenTTL),
+		Hub:     notify.NewHub(0),
+	}
+	handler := httpapi.NewHandler(svc, streams, apiPool, log,
 		httpapi.NewClientIP(httpCfg.TrustedProxies).Middleware,
 		httpapi.SecurityHeaders,
 		httpapi.ForRoute("POST /tickets", submitLimiter.Middleware),
 		httpapi.LimitBody(limits.MaxBodyBytes),
-		httpapi.WriteDeadline(httpCfg.WriteTimeout, log),
+		httpapi.ExceptRoute("GET /tickets/{id}/events", httpapi.WriteDeadline(httpCfg.WriteTimeout, log)),
 	)
 	srv := httpapi.NewServer(ln.Addr().String(), handler, httpapi.ServerTimeouts{
 		ReadHeader: httpCfg.ReadHeaderTimeout,

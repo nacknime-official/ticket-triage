@@ -51,8 +51,8 @@ func LimitBody(maxBytes int64) Middleware {
 // The deadline also bounds the flush of the buffered response after the
 // handler returns; the server clears it then, so it does not carry over to
 // the next request on a keep-alive connection. Streaming routes must not be
-// wrapped; pass it to NewHandler through ForRoute for each other route, or
-// once the API has no streaming routes, as is.
+// wrapped: pass it to NewHandler through ExceptRoute for the SSE route,
+// which sets a deadline per event instead.
 func WriteDeadline(d time.Duration, logger *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72,12 +72,24 @@ func WriteDeadline(d time.Duration, logger *slog.Logger) Middleware {
 // to NewHandler, whose extra middleware otherwise wraps every route. The
 // match uses ServeMux itself, so it agrees with the routing.
 func ForRoute(pattern string, mw Middleware) Middleware {
+	return routeSwitch(pattern, mw, true)
+}
+
+// ExceptRoute applies mw to every request but those that match pattern, such
+// as WriteDeadline to all but the streaming route. It matches like ForRoute.
+func ExceptRoute(pattern string, mw Middleware) Middleware {
+	return routeSwitch(pattern, mw, false)
+}
+
+// routeSwitch applies mw to the requests whose match against pattern equals
+// match.
+func routeSwitch(pattern string, mw Middleware, match bool) Middleware {
 	matcher := http.NewServeMux()
 	matcher.Handle(pattern, http.NotFoundHandler())
 	return func(next http.Handler) http.Handler {
 		wrapped := mw(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, p := matcher.Handler(r); p == pattern {
+			if _, p := matcher.Handler(r); (p == pattern) == match {
 				wrapped.ServeHTTP(w, r)
 				return
 			}

@@ -1,8 +1,10 @@
 // Command api serves the public HTTP API: POST /tickets, GET /tickets/{id},
+// POST /tickets/{id}/stream-token, the SSE stream GET /tickets/{id}/events,
 // GET /healthz and GET /readyz, behind the limits of README §4.1. It runs the
-// outbox relay that publishes submitted tickets to Kafka. A second listener,
-// on a loopback address only, serves pprof, including the goroutineleak
-// profile.
+// outbox relay that publishes submitted tickets to Kafka, and reads
+// tickets.events without a consumer group into the hub that feeds the SSE
+// streams. A second listener, on a loopback address only, serves pprof,
+// including the goroutineleak profile.
 //
 // Usage: api
 //
@@ -31,6 +33,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/kafka"
 	"github.com/nacknime-official/ticket-triage/internal/lifecycle"
 	"github.com/nacknime-official/ticket-triage/internal/logging"
+	"github.com/nacknime-official/ticket-triage/internal/notify"
 	"github.com/nacknime-official/ticket-triage/internal/outbox"
 	"github.com/nacknime-official/ticket-triage/internal/storage/postgres"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
@@ -82,10 +85,11 @@ func run(ctx context.Context, stopSignals func(), getenv func(string) string, lo
 	defer func() { _ = debugLn.Close() }()
 
 	// The client connects lazily, so a broker that is down delays publishing
-	// but not the API; the relay retries every poll. The delivery timeout
-	// bounds a record's produce independently of the batch context.
+	// and status events but not the API; the relay retries every poll. The
+	// delivery timeout bounds a record's produce independently of the batch
+	// context. The same client reads tickets.events, without a group.
 	kafkaClient, err := kafka.NewClient(kafkaCfg.Brokers, clientID,
-		kgo.RecordDeliveryTimeout(outboxCfg.PublishTimeout))
+		append(kafka.EventsOpts(), kgo.RecordDeliveryTimeout(outboxCfg.PublishTimeout))...)
 	if err != nil {
 		return err
 	}
@@ -99,12 +103,21 @@ func run(ctx context.Context, stopSignals func(), getenv func(string) string, lo
 
 	tickets := postgres.NewTickets(pool, kafka.TopicSubmitted)
 	svc := ticket.NewService(tickets, ticket.Config{MaxPending: limits.PendingCap})
+	streams := ticket.NewStreams(svc, postgres.NewStreamTokens(pool), limits.StreamTokenTTL)
+	hub := notify.NewHub(0)
+	events, err := kafka.NewEventsReader(kafkaClient, hub, logger)
+	if err != nil {
+		kafkaClient.Close()
+		pool.Close()
+		return err
+	}
 	timeouts := httpapi.ServerTimeouts{
 		ReadHeader: httpCfg.ReadHeaderTimeout,
 		Read:       httpCfg.ReadTimeout,
 		Idle:       httpCfg.IdleTimeout,
 	}
-	apiSrv := httpapi.NewServer(httpCfg.Addr, newHandler(svc, pool, httpCfg, limits, logger), timeouts, logger)
+	apiSrv := httpapi.NewServer(httpCfg.Addr, newHandler(svc, streams, hub, pool, httpCfg, limits, logger),
+		timeouts, logger)
 	debugSrv := httpapi.NewServer(httpCfg.DebugAddr, newDebugHandler(), timeouts, logger)
 
 	serveErr := make(chan error, 2) // buffered: a failing server never blocks on send
@@ -131,6 +144,7 @@ func run(ctx context.Context, stopSignals func(), getenv func(string) string, lo
 	// A signal does not cancel the relay: the shutdown steps stop it after
 	// the HTTP server, so tickets submitted during the drain are published.
 	relay.Start(context.WithoutCancel(ctx))
+	events.Start(context.WithoutCancel(ctx))
 
 	logger.Info("api started",
 		slog.String("addr", apiLn.Addr().String()),
@@ -150,11 +164,19 @@ func run(ctx context.Context, stopSignals func(), getenv func(string) string, lo
 	}
 	stopSignals()
 
-	// The HTTP server goes first, so no new ticket reaches the outbox; then
-	// the relay finishes its batch and the Kafka client closes. The debug
-	// server stays up until the end to profile a slow drain.
+	// Closing the hub ends the SSE streams, which Shutdown would otherwise
+	// wait on for up to SSE_MAX_DURATION; their clients reconnect to another
+	// instance. The HTTP server goes next, so no new ticket reaches the
+	// outbox; then the events reader stops, the relay finishes its batch and
+	// the Kafka client closes. The debug server stays up until the end to
+	// profile a slow drain.
 	shutdownErr := lifecycle.Shutdown(ctx, shutdownTimeout,
+		lifecycle.Step{Name: "sse streams", Stop: func(context.Context) error {
+			hub.Close()
+			return nil
+		}},
 		lifecycle.Step{Name: "http server", Stop: apiSrv.Shutdown},
+		lifecycle.Step{Name: "events reader", Stop: events.Stop},
 		lifecycle.Step{Name: "outbox relay", Stop: relay.Stop},
 		lifecycle.Step{Name: "kafka client", Stop: func(context.Context) error {
 			kafkaClient.Close()
@@ -180,22 +202,42 @@ func run(ctx context.Context, stopSignals func(), getenv func(string) string, lo
 	return errors.Join(runErr, shutdownErr)
 }
 
+// eventsRoute is the SSE route, the only streaming one.
+const eventsRoute = "GET /tickets/{id}/events"
+
 // newHandler composes the public API with the T08 middleware. The client IP
-// is resolved first, so the rate limiter and the logs see the real client.
-func newHandler(svc httpapi.TicketService, ready httpapi.Pinger, httpCfg config.HTTP, limits config.Limits,
-	logger *slog.Logger,
+// is resolved first, so the limiters and the logs see the real client.
+func newHandler(svc httpapi.TicketService, streams httpapi.StreamService, hub *notify.Hub, ready httpapi.Pinger,
+	httpCfg config.HTTP, limits config.Limits, logger *slog.Logger,
 ) http.Handler {
 	submitLimiter := httpapi.NewRateLimiter(httpapi.RateLimit{
 		PerMinute: limits.SubmitRatePerMin,
 		Burst:     limits.SubmitBurst,
 	})
-	return httpapi.NewHandler(svc, ready, logger,
+	streamTokenLimiter := httpapi.NewRateLimiter(httpapi.RateLimit{
+		PerMinute: limits.StreamTokenRatePerMin,
+		Burst:     limits.StreamTokenBurst,
+	})
+	streamLimiter := httpapi.NewStreamLimiter(httpapi.StreamLimit{
+		PerClient: limits.SSEMaxPerIP,
+		Global:    limits.SSEMaxGlobal,
+	})
+	sse := httpapi.Streams{
+		Service:      streams,
+		Hub:          hub,
+		Heartbeat:    limits.SSEHeartbeat,
+		MaxDuration:  limits.SSEMaxDuration,
+		WriteTimeout: httpCfg.WriteTimeout,
+	}
+	return httpapi.NewHandler(svc, sse, ready, logger,
 		httpapi.NewClientIP(httpCfg.TrustedProxies).Middleware,
 		httpapi.SecurityHeaders,
 		httpapi.ForRoute("POST /tickets", submitLimiter.Middleware),
+		httpapi.ForRoute("POST /tickets/{id}/stream-token", streamTokenLimiter.Middleware),
+		httpapi.ForRoute(eventsRoute, streamLimiter.Middleware),
 		httpapi.LimitBody(limits.MaxBodyBytes),
-		// Every route is non-streaming until SSE (T20) scopes this with ForRoute.
-		httpapi.WriteDeadline(httpCfg.WriteTimeout, logger),
+		// The SSE handler sets a write deadline per event instead.
+		httpapi.ExceptRoute(eventsRoute, httpapi.WriteDeadline(httpCfg.WriteTimeout, logger)),
 	)
 }
 

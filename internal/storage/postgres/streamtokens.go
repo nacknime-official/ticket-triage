@@ -10,6 +10,8 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
+var _ ticket.StreamTokenStore = (*StreamTokens)(nil)
+
 // StreamTokens stores the single-use SSE stream tokens (README §3.1, §4.1),
 // only as sha256 hashes.
 type StreamTokens struct {
