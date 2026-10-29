@@ -401,6 +401,11 @@ $0.0005); the recordings are in `internal/classifier/jev/testdata/live/`.
   validation message also allows a record or an array), checked live on 2026-10-29. Criteria sent as a string,
   as an array, or without the `true` and `false` keys are rejected with 400. `is_complaint` sends the
   "Complaint" labeling guidelines of `testdata/eval/README.md` there; `docs/eval.md` shows the effect.
+- `score` takes `criteria` only as an array, one entry per level from level 0 up, checked live on 2026-10-29:
+  an object, keyed by level number or by name, is rejected with 400; array entries may also be objects, which
+  the answer's `legend` echoes back; a key other than `type`, `instructions` and `criteria` is ignored (same
+  input tokens). `urgency` sends the "Urgency" labeling guidelines of `testdata/eval/README.md`: the rules for
+  all levels after the instruction, each level's list as its criterion; `docs/eval.md` shows the effect.
 - Answer shapes (T12): `noul` → `{type, noul: P(yes)}` without a confidence; `choice` → `{type, choice,
   probabilities: {option: p}, confidence}`; `score` → `{type, score, legend: {"0": level, ...},
   probabilities: {"0": p, ...}, confidence}`. A `score` with a single level is accepted (the docs say 2–10).

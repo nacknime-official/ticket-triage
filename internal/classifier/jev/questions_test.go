@@ -13,7 +13,8 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 )
 
-// guidelinesREADME holds the labeling guidelines complaintGuidelines copies.
+// guidelinesREADME holds the labeling guidelines complaintGuidelines and
+// urgencyGuidelines copy.
 const guidelinesREADME = "../../../testdata/eval/README.md"
 
 // TestComplaintGuidelinesMatchREADME keeps the complaint definition sent to
@@ -36,6 +37,33 @@ func TestComplaintGuidelinesMatchREADME(t *testing.T) {
 	} {
 		if got := bulletsAfter(section, tt.lead); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%s list %q =\n%q\nwant complaintGuidelines\n%q", guidelinesREADME, tt.lead, got, tt.want)
+		}
+	}
+}
+
+// TestUrgencyGuidelinesMatchREADME keeps the urgency definition sent to Jev
+// and the one the labels follow the same text.
+func TestUrgencyGuidelinesMatchREADME(t *testing.T) {
+	b, err := os.ReadFile(guidelinesREADME)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := markdownSection(string(b), "### Urgency")
+	if section == "" {
+		t.Fatalf("%s has no ### Urgency section", guidelinesREADME)
+	}
+	leads := []string{"`0` low:", "`1` normal:", "`2` high:", "`3` critical:"}
+	if len(urgencyGuidelines.Levels) != len(leads) {
+		t.Fatalf("urgencyGuidelines has %d levels, want %d", len(urgencyGuidelines.Levels), len(leads))
+	}
+	if got := bulletsAfter(section, "All levels:"); !reflect.DeepEqual(got, urgencyGuidelines.All) {
+		t.Errorf("%s list %q =\n%q\nwant urgencyGuidelines.All\n%q", guidelinesREADME, "All levels:", got,
+			urgencyGuidelines.All)
+	}
+	for i, lead := range leads {
+		if got := bulletsAfter(section, lead); !reflect.DeepEqual(got, urgencyGuidelines.Levels[i]) {
+			t.Errorf("%s list %q =\n%q\nwant urgencyGuidelines.Levels[%d]\n%q", guidelinesREADME, lead, got, i,
+				urgencyGuidelines.Levels[i])
 		}
 	}
 }

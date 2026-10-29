@@ -179,27 +179,56 @@ intent by the rule on filing a complaint. A conditional legal step raises urgenc
 
 ### Urgency
 
-| Level | Meaning | Examples |
-|---|---|---|
-| `0` low | nothing broken and no time pressure | how-to and pricing questions, feature ideas, thanks, partnerships, newsletter |
-| `1` normal | the customer needs something done or has a problem, but has a workaround or nothing is blocked yet | cancel an order, get an invoice, a refund for unused time, a bug with a workaround, slowness, reset a forgotten password |
-| `2` high | the problem blocks the customer's work or money is already lost | payment fails, double charge, charged after cancelling, locked out with no way back, an API failure stopping their sync, lost unsaved work |
-| `3` critical | outage, security incident, data loss, or a legal threat | the service is down for a whole team, a compromised account, a data leak, stored data gone, "our legal department will take action", a court or regulator complaint |
+How soon the customer needs the request handled, from the impact the text states. Jev answers `urgency`
+against the lists below, which it receives word for word: the "All levels" rules end the question's
+instructions, and each level's list is that level's criterion. They are `urgencyGuidelines` in
+`internal/classifier/jev/questions.go`, and `TestUrgencyGuidelinesMatchREADME` fails when the lists here and
+there differ, so change both together.
 
-Edge-case rules:
+All levels:
 
-- **Tone does not change urgency.** An angry feature request is still `0`.
-- **Feature requests** are `0`, or `1` when the missing feature already costs the customer work or blocks a
-  rollout (manual reconciliation every day, "security requires SSO before we roll you out").
-- **Stated deadlines** ("needed today", "client meeting in an hour") move a `1` to `2`, never to `3`.
-- **Partial failure** (half of API calls fail) is `2`. A whole team or all users unable to work is `3`.
-- **Data loss.** Stored data gone is `3`. One session's unsaved work lost in a crash is `2`.
-- **Legal threat** means a lawsuit, lawyers, a court, or a regulator or ombudsman complaint. A bank chargeback
-  threat is not legal; it stays `2` when money was lost.
-- **Vague text.** Take the impact literally from the words: "can't log in" blocks the user (`2`), "works
-  strangely" does not (`1`), a bare "question about my bill" is `0`.
-- **Password recovery.** Asking how to reset a forgotten password is `1` (there is a self-service path). The
-  reset email never arriving, so the user cannot get in, is `2`.
+- Tone does not change urgency: anger, caps, profanity or a threat to leave do not raise the level, and an
+  angry feature request is still low.
+- Take the impact literally from the words, not what the customer might mean beyond them.
+
+`0` low:
+
+- Low: nothing is broken and there is no time pressure.
+- How-to and pricing questions, feature ideas, thanks, partnerships and newsletter requests are low.
+- A feature request is low, unless the missing feature already costs the customer work or blocks a rollout.
+- A bare "question about my bill" is low.
+
+`1` normal:
+
+- Normal: the customer needs something done or has a problem, but has a workaround or nothing is blocked yet.
+- Cancelling an order, getting an invoice, a refund for unused time, a bug with a workaround and slowness are
+  normal.
+- Asking how to reset a forgotten password is normal: there is a self-service path.
+- A missing feature that already costs the customer work or blocks a rollout (manual reconciliation every
+  day, "security requires SSO before we roll you out") is normal.
+- Something that "works strangely" does not block the customer and is normal.
+
+`2` high:
+
+- High: the problem blocks the customer's work or money is already lost.
+- A failing payment, a double charge, a charge after cancelling, being locked out with no way back and an API
+  failure stopping the customer's sync are high.
+- A stated deadline ("needed today", "client meeting in an hour") moves a normal request to high, never to
+  critical.
+- A partial failure (half of API calls fail) is high.
+- One session's unsaved work lost in a crash is high.
+- "Can't log in" blocks the user and is high, and so is a password reset email that never arrives, so the
+  user cannot get in.
+- A bank chargeback threat is not a legal threat; it stays high when money was lost.
+
+`3` critical:
+
+- Critical: an outage, a security incident, data loss, or a legal threat.
+- The service down for a whole team or all users, a compromised account, a data leak and stored data gone
+  are critical.
+- A legal threat means a lawsuit, lawyers, a court, or a regulator or ombudsman complaint ("our legal
+  department will take action"), and it is critical also when it is conditional ("if you do not refund by
+  Friday, I will go to court").
 
 ## Hard-case tags
 

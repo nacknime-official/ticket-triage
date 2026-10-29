@@ -155,10 +155,10 @@ func TestClassifyGolden(t *testing.T) {
 			wantWireModel: "typesafe/jev-1.14",
 			want: classifier.Result{
 				ComplaintP: 0.12, Category: classifier.CategoryBilling, CategoryConfidence: 1,
-				Urgency: 1.95, UrgencyConfidence: 0.95,
+				Urgency: 1.98, UrgencyConfidence: 0.99,
 				Call: classifier.Call{
 					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
-					InputTokens: 807, OutputTokens: 87, CostUSD: 0.000033894, CostSource: classifier.CostReported,
+					InputTokens: 1230, OutputTokens: 87, CostUSD: 0.00005166, CostSource: classifier.CostReported,
 				},
 			},
 		},
@@ -759,7 +759,7 @@ func TestRedaction(t *testing.T) {
 }
 
 func TestUrgencyLevels(t *testing.T) {
-	if got, want := len(urgencyLevels), int(classifier.MaxUrgency)+1; got != want {
+	if got, want := len(urgencyGuidelines.criteria()), int(classifier.MaxUrgency)+1; got != want {
 		t.Errorf("%d urgency levels, want %d so the score is the level", got, want)
 	}
 }
