@@ -154,11 +154,11 @@ func TestClassifyGolden(t *testing.T) {
 			name: "openrouter ukrainian", provider: ProviderOpenRouter, body: liveBody("ok-uk.json"),
 			wantWireModel: "typesafe/jev-1.14",
 			want: classifier.Result{
-				ComplaintP: 0.97, Category: classifier.CategoryBilling, CategoryConfidence: 1,
-				Urgency: 1.96, UrgencyConfidence: 0.96,
+				ComplaintP: 0.12, Category: classifier.CategoryBilling, CategoryConfidence: 1,
+				Urgency: 1.95, UrgencyConfidence: 0.95,
 				Call: classifier.Call{
 					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
-					InputTokens: 656, OutputTokens: 87, CostUSD: 0.000027552, CostSource: classifier.CostReported,
+					InputTokens: 807, OutputTokens: 87, CostUSD: 0.000033894, CostSource: classifier.CostReported,
 				},
 			},
 		},

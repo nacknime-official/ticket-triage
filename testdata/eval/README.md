@@ -153,18 +153,29 @@ Edge-case rules:
 
 ### Complaint
 
-`true` when the customer expresses dissatisfaction: anger, blame, sarcasm, "again", a threat to leave or to
-escalate, a demand for compensation, profanity, or an explicit claim or complaint. `false` for questions,
-requests and neutral, factual problem reports, even when something is broken or money was lost.
+`true` when the customer expresses dissatisfaction, `false` for questions, requests and neutral, factual
+problem reports. Jev answers `is_complaint` against the two lists below, which it receives word for word as
+the question's criteria: they are `complaintGuidelines` in `internal/classifier/jev/questions.go`, and
+`TestComplaintGuidelinesMatchREADME` fails when the lists here and there differ, so change both together.
 
-Edge-case rules:
+Complaint (`true`):
 
-- A polite report of a double charge asking for a refund is `false`. "You charged me AGAIN, refund it now" is
-  `true`.
-- Profanity or insults aimed at the product or company are `true` (Bitext `W` rows).
+- The customer expresses dissatisfaction: anger, blame, sarcasm, "again", a threat to leave or to escalate, a
+  demand for compensation, profanity, or an explicit claim or complaint.
+- Profanity or insults aimed at the product or company are a complaint.
+- Asking how to file a complaint or claim is a complaint.
+- "You charged me AGAIN, refund it now" is a complaint.
+
+Not a complaint (`false`):
+
+- Questions, requests and neutral, factual problem reports are not complaints, even when something is broken
+  or money was lost.
+- A polite report of a double charge asking for a refund is not a complaint.
 - A formal request with a conditional legal step but no dissatisfaction ("otherwise I will have to contact the
-  ombudsman") is `false`; the threat raises urgency instead.
-- Asking how to file a complaint or claim (Bitext `complaint`) is `true`.
+  ombudsman") is not a complaint.
+
+Bitext rows: the `W` rows (offensive language) are complaints by the profanity rule, and the `complaint`
+intent by the rule on filing a complaint. A conditional legal step raises urgency instead (see Urgency).
 
 ### Urgency
 
