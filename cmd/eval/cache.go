@@ -18,18 +18,25 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/evalset"
 )
 
-// cacheKey identifies one classifier answer: the same ticket text sent to the
-// same provider and configured model. The text hash makes an edited row miss.
+// cacheKey identifies one classifier answer: the same ticket text sent with
+// the same questions to the same provider and configured model. The text hash
+// makes an edited row miss; the questions hash (jev.Client.QuestionsSHA256)
+// makes every row miss after a question change. An entry written before the
+// key had the questions hash has it empty, so it misses too.
 type cacheKey struct {
-	Provider   string
-	Model      string
-	ID         string
-	TextSHA256 string
+	Provider        string
+	Model           string
+	QuestionsSHA256 string
+	ID              string
+	TextSHA256      string
 }
 
-func newCacheKey(provider, model string, row evalset.Row) cacheKey {
+func newCacheKey(provider, model, questions string, row evalset.Row) cacheKey {
 	sum := sha256.Sum256([]byte(row.Subject + "\x00" + row.Body))
-	return cacheKey{Provider: provider, Model: model, ID: row.ID, TextSHA256: hex.EncodeToString(sum[:])}
+	return cacheKey{
+		Provider: provider, Model: model, QuestionsSHA256: questions,
+		ID: row.ID, TextSHA256: hex.EncodeToString(sum[:]),
+	}
 }
 
 // cacheEntry is one line of the cache file. It holds the answer and the call
@@ -37,6 +44,7 @@ func newCacheKey(provider, model string, row evalset.Row) cacheKey {
 type cacheEntry struct {
 	Provider           string                `json:"provider"`
 	Model              string                `json:"model"`
+	QuestionsSHA256    string                `json:"questions_sha256"`
 	ID                 string                `json:"id"`
 	TextSHA256         string                `json:"text_sha256"`
 	ComplaintP         float64               `json:"complaint_p"`
@@ -55,13 +63,17 @@ type cacheEntry struct {
 }
 
 func (e cacheEntry) key() cacheKey {
-	return cacheKey{Provider: e.Provider, Model: e.Model, ID: e.ID, TextSHA256: e.TextSHA256}
+	return cacheKey{
+		Provider: e.Provider, Model: e.Model, QuestionsSHA256: e.QuestionsSHA256,
+		ID: e.ID, TextSHA256: e.TextSHA256,
+	}
 }
 
 func newCacheEntry(k cacheKey, r classifier.Result) cacheEntry {
 	e := cacheEntry{
 		Provider:           k.Provider,
 		Model:              k.Model,
+		QuestionsSHA256:    k.QuestionsSHA256,
 		ID:                 k.ID,
 		TextSHA256:         k.TextSHA256,
 		ComplaintP:         r.ComplaintP,

@@ -254,6 +254,7 @@ go run ./cmd/eval -classifier jev -env-file ~/.config/ticket-triage/.env \
   -jsonl ~/.cache/ticket-triage/eval-results.jsonl
 ```
 
-Answers are cached per ticket and model in `.cache/eval/results.jsonl` (git-ignored), so re-rendering
-the report or re-running the sweep costs nothing. `-refresh` calls Jev again, for example after the adapter
-or its questions change. `-limit 5` makes a small first run. `go run ./cmd/eval -h` lists every flag.
+Answers are cached per ticket, model and hash of the Jev questions in `.cache/eval/results.jsonl`
+(git-ignored), so re-rendering the report or re-running the sweep costs nothing, and a question change
+calls Jev again for every row. `-refresh` calls Jev again regardless, for example after another adapter
+change. `-limit 5` makes a small first run. `go run ./cmd/eval -h` lists every flag.

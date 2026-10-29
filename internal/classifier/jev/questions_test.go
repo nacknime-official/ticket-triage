@@ -2,6 +2,8 @@ package jev
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"net/http"
@@ -109,5 +111,38 @@ func TestRecordedRequestIsCurrent(t *testing.T) {
 	}
 	if got := last.Load().body; !bytes.Equal(got, want) {
 		t.Errorf("adapter request =\n%s\nlive/ok-uk.json recorded\n%s\nre-record it with cmd/jevprobe", got, want)
+	}
+}
+
+// TestQuestionsSHA256 checks that the hash covers exactly the questions on the
+// wire, so cmd/eval's cache misses after any question change.
+func TestQuestionsSHA256(t *testing.T) {
+	srv, last := serve(t, http.StatusOK, nil, live(t, "ok.json").body())
+	c := newClient(t, testConfig(srv.URL))
+	if _, err := c.Classify(t.Context(), testInput); err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		Questions jsontext.Value `json:"questions"`
+	}
+	if err := json.Unmarshal(last.Load().body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(sent.Questions)
+	if got, want := c.QuestionsSHA256(), hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("QuestionsSHA256() = %s, sha256 of the questions sent = %s", got, want)
+	}
+
+	other := testConfig(srv.URL)
+	other.Model, other.APIKey = "typesafe/jev-2", "sk-other"
+	if got := newClient(t, other).QuestionsSHA256(); got != c.QuestionsSHA256() {
+		t.Errorf("another model and key: QuestionsSHA256() = %s, want %s", got, c.QuestionsSHA256())
+	}
+
+	edited := testConfig(srv.URL)
+	edited.Taxonomy = classifier.DefaultTaxonomy()
+	edited.Taxonomy[0].Description += " Refunds too."
+	if got := newClient(t, edited).QuestionsSHA256(); got == c.QuestionsSHA256() {
+		t.Errorf("an edited category description kept QuestionsSHA256() = %s", got)
 	}
 }
