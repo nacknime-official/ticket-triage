@@ -45,15 +45,10 @@ func (s *TriageStore) Ticket(ctx context.Context, id uuid.UUID) (ticket.Ticket, 
 	return NewTickets(s.db, "").Get(ctx, id)
 }
 
-// SpentSince implements triage.Store. Calls without a cost count as zero.
+// SpentSince implements triage.Store. Shadow replay calls count too: live
+// and shadow calls share the daily budget.
 func (s *TriageStore) SpentSince(ctx context.Context, since time.Time) (float64, error) {
-	var spent float64
-	err := s.db.QueryRow(ctx,
-		`SELECT coalesce(sum(cost_usd), 0)::float8 FROM classifications WHERE created_at >= $1`, since).Scan(&spent)
-	if err != nil {
-		return 0, fmt.Errorf("postgres: sum classifier cost since %s: %w", since.Format(time.RFC3339), err)
-	}
-	return spent, nil
+	return spentSince(ctx, s.db, since)
 }
 
 // finishTicket moves a pending ticket to a final status.

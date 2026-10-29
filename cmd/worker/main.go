@@ -8,7 +8,13 @@
 // poison record, the ticket goes to needs_human and its record to
 // tickets.submitted.dlq; cmd/redrive re-publishes DLQ records by hand.
 //
-// Usage: worker
+// Usage:
+//
+//	worker
+//	worker shadow [flags]
+//
+// "worker shadow" replays the history of tickets.submitted in shadow mode
+// instead; see shadow.go.
 //
 // Configuration comes from the environment; see .env.example. On SIGINT or
 // SIGTERM the worker stops polling, finishes the tickets in flight within
@@ -47,7 +53,12 @@ func main() {
 	ctx, stop := lifecycle.SignalContext(context.Background())
 	// After the first signal, a second one kills the process.
 	context.AfterFunc(ctx, stop)
-	err := run(ctx, os.Args[1:], os.Getenv, os.Stderr)
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "shadow" {
+		err = runShadow(ctx, os.Args[2:], os.Getenv, os.Stdout, os.Stderr)
+	} else {
+		err = run(ctx, os.Args[1:], os.Getenv, os.Stderr)
+	}
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "worker:", err)
@@ -57,7 +68,7 @@ func main() {
 
 func run(ctx context.Context, args []string, getenv func(string) string, logOut io.Writer) error {
 	if len(args) != 0 {
-		return errors.New("usage: worker")
+		return errors.New("usage: worker | worker shadow [flags]")
 	}
 	l := config.NewLoader(getenv)
 	logCfg, pgCfg, kafkaCfg := l.Log(), l.Postgres(), l.Kafka()
