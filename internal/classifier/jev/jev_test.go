@@ -155,10 +155,10 @@ func TestClassifyGolden(t *testing.T) {
 			wantWireModel: "typesafe/jev-1.14",
 			want: classifier.Result{
 				ComplaintP: 0.1, Category: classifier.CategoryBilling, CategoryConfidence: 1,
-				Urgency: 1.99, UrgencyConfidence: 0.99,
+				Urgency: 1.98, UrgencyConfidence: 0.99,
 				Call: classifier.Call{
 					Provider: ProviderOpenRouter, Model: "typesafe/jev-1.14-20261014", HTTPStatus: 200,
-					InputTokens: 1332, OutputTokens: 87, CostUSD: 0.000055944, CostSource: classifier.CostReported,
+					InputTokens: 1348, OutputTokens: 87, CostUSD: 0.000056616, CostSource: classifier.CostReported,
 				},
 			},
 		},

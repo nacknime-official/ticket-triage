@@ -103,12 +103,6 @@ What the tool changes in each Bitext row:
 `expected_complaint` is `true` for the `complaint` intent and for rows Bitext tagged `W` (offensive
 language), `false` otherwise.
 
-Labels changed by hand after the import, which a re-run of the tool reverts:
-
-- `bitext-7ba1793968c9` "i need assistance demanding compensations of my money" (`get_refund`):
-  `expected_complaint` changed from `false` to `true`, because the complaint guidelines count a demand for
-  compensation as a complaint.
-
 Intents left out because their category is ambiguous in this taxonomy: `switch_account` (plan change:
 `billing` or `account`), `registration_problems` (sign-up bug: `technical` or `account`),
 `change_shipping_address` and `set_up_shipping_address` (`account` profile or `other` logistics),
@@ -177,15 +171,15 @@ Not a complaint (`false`):
 - Questions, requests and neutral, factual problem reports are not complaints, even when something is broken
   or money was lost.
 - A polite report of a double charge asking for a refund is not a complaint.
+- A calm question about how to get a refund or compensation is not a complaint.
 - A calm, factual report of an error, a crash or something not working is not a complaint in any language,
   even when it stops work ("застосунок вилітає, коли я експортую звіт"); the same report with dissatisfaction
   ("знову вилітає, скільки можна терпіти") is a complaint.
 - A formal request with a conditional legal step but no dissatisfaction ("otherwise I will have to contact the
   ombudsman") is not a complaint.
 
-Bitext rows: the `W` rows (offensive language) are complaints by the profanity rule, the `complaint`
-intent by the rule on filing a complaint, and `bitext-7ba1793968c9` ("demanding compensations of my money")
-by the demand for compensation rule. A conditional legal step raises urgency instead (see Urgency).
+Bitext rows: the `W` rows (offensive language) are complaints by the profanity rule, and the `complaint`
+intent by the rule on filing a complaint. A conditional legal step raises urgency instead (see Urgency).
 
 ### Urgency
 

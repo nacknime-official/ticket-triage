@@ -5,76 +5,75 @@ Live run of `typesafe/jev-1.14` (served as `typesafe/jev-1.14-20261014`) through
 > **Labels are unreviewed drafts.** An agent drafted every label and no human has reviewed them yet
 > (`testdata/eval/README.md`), so every accuracy number here is provisional.
 
-## Complaint example and label fix: before and after
+## Complaint examples: before and after
 
 Written by hand; `cmd/eval` does not generate this section, so a re-run drops it. "Before" is a live run of
 the same eval set and model on the same day at commit `87939f8`, with the complaint guidelines as they were
 then (`-cache` empty, every row called). "After" is this run, every row called again (the questions hash
-changed, so the cache missed). Two changes sit between them:
+changed, so the cache missed). The "Complaint" labeling guidelines of `testdata/eval/README.md`, which
+`is_complaint` sends word for word, gained two "Not a complaint" sentences:
 
-- The "Complaint" labeling guidelines of `testdata/eval/README.md`, which `is_complaint` sends word for word,
-  gained one "Not a complaint" sentence: a calm, factual report of an error, a crash or something not
-  working is not a complaint in any language, even when it stops work, with a Ukrainian example and the same
-  report with dissatisfaction as the contrast.
-- `bitext-7ba1793968c9` "i need assistance demanding compensations of my money" (Bitext `get_refund`) is now
-  labeled a complaint: the guidelines count a demand for compensation as a complaint, and the intent-based
-  draft had labeled it `false`.
+- A calm question about how to get a refund or compensation is not a complaint.
+- A calm, factual report of an error, a crash or something not working is not a complaint in any language,
+  even when it stops work, with a Ukrainian example and the same report with dissatisfaction as the contrast.
 
-The category and urgency questions, the thresholds and every other label did not change. The urgency before
-and after of the previous change is in this file at commit `87939f8`; that run had complaint at 93.0% and
-this day's "before" run 92.0% with the same questions and labels, run to run noise.
+The category and urgency questions, the thresholds and every label did not change. The label of
+`bitext-7ba1793968c9` "i need assistance demanding compensations of my money" (Bitext `get_refund`) was
+checked and stays `false`, like its neighbour `bitext-b07d1c5688a4` "is it possible to demand a rebate of my
+money?": both are calm requests for help getting money back, and the demand for compensation rule covers a
+demand made with dissatisfaction. The urgency before and after of the previous change is in this file at
+commit `87939f8`; that run had complaint at 93.0% and this day's "before" run 92.0% with the same questions
+and labels, run to run noise.
 
-The middle column scores the "before" answers against the new label, so it separates the two changes: the
-label fix accounts for one row, the guidelines example for four.
+| Complaint accuracy | before | after |
+|---|---|---|
+| all | 92.0% (92/100) | 95.0% (95/100) |
+| en | 96.0% (48/50) | 96.0% (48/50) |
+| uk | 88.0% (44/50) | 94.0% (47/50) |
 
-| Complaint accuracy | before | before, new label | after |
-|---|---|---|---|
-| all | 92.0% (92/100) | 93.0% (93/100) | 97.0% (97/100) |
-| en | 96.0% (48/50) | 98.0% (49/50) | 98.0% (49/50) |
-| uk | 88.0% (44/50) | 88.0% (44/50) | 96.0% (48/50) |
-
-Confusion, label \ answer, before → after (the "before" counts with the old label of
-`bitext-7ba1793968c9`, which moves one row from `false` to `true`):
+Confusion, label \ answer, before → after:
 
 | all | false | true |
 |---|---|---|
-| false | 74 → 78 | 8 → 3 |
-| true | 0 → 0 | 18 → 19 |
+| false | 74 → 77 | 8 → 5 |
+| true | 0 → 0 | 18 → 18 |
 
 | en | false | true |
 |---|---|---|
-| false | 37 → 37 | 2 → 1 |
-| true | 0 → 0 | 11 → 12 |
+| false | 37 → 37 | 2 → 2 |
+| true | 0 → 0 | 11 → 11 |
 
 | uk | false | true |
 |---|---|---|
-| false | 37 → 41 | 6 → 2 |
+| false | 37 → 40 | 6 → 3 |
 | true | 0 → 0 | 7 → 7 |
 
-Complaints answered `false` stay at 0, so the new sentence did not make Jev miss a complaint. By tag, complaint
-accuracy rises for `surzhyk` (5/6 to 6/6), `typos` (7/8 to 8/8) and `mixed_topics` (4/5 to 5/5); `vague`
-stays at 6/7. The `complaint_uncertain` flag drops from 8 to 6
-rows (uk 7 to 5).
+Complaints answered `false` stay at 0, so the new sentences did not make Jev miss a complaint. By tag, complaint
+accuracy rises for `surzhyk` (5/6 to 6/6) and `mixed_topics` (4/5 to 5/5); `typos` (7/8) and `vague` (6/7)
+stay. The `complaint_uncertain` flag drops from 8 to 7 rows (uk 7 to 5, en 1 to 2).
 
-The rows the example fixed, P(complaint) before → after: `gen-uk-012` (a `502` for the whole team) 0.61 →
-0.34, `gen-uk-016` (the app crashes on one tab) 0.53 → 0.23, `gen-uk-017` (pages load slowly) 0.65 → 0.48 and
-`gen-uk-022` (a calendar bug plus a wish) 0.52 → 0.26. Calm English reports that were already right moved
-further from the threshold, such as `gen-en-004` (a `500` from the API) 0.49 → 0.21.
+The rows the error report example fixed, P(complaint) before → after: `gen-uk-012` (a `502` for the whole
+team) 0.61 → 0.34, `gen-uk-016` (the app crashes on one tab) 0.53 → 0.24 and `gen-uk-022` (a calendar bug
+plus a wish) 0.52 → 0.26. Calm English reports that were already right moved further from the threshold, such
+as `gen-en-004` (a `500` from the API) 0.49 → 0.20.
 
-The 3 false positives left:
+The 5 false positives left:
 
-- `gen-en-006` "Possible data leak" (0.72 → 0.71): another customer's invoice in an email, called "a serious
+- `bitext-7ba1793968c9` "demanding compensations of my money" (0.58, `complaint_uncertain`): the refund
+  question sentence did not move it below the threshold; its neighbour `bitext-b07d1c5688a4` stays at 0.15.
+- `gen-en-006` "Possible data leak" (0.72 → 0.70): another customer's invoice in an email, called "a serious
   privacy issue"; the guidelines do not say whether naming the severity is dissatisfaction.
+- `gen-uk-017` pages load slowly (0.65 → 0.51): moved toward the threshold but not past it.
 - `gen-uk-019` "something is wrong with the site, it works strangely" (0.71 → 0.58), tagged `vague`.
-- `gen-uk-021` webhooks arrive 10–15 minutes late, "not critical, but inconvenient" (0.69 → 0.59): the label
+- `gen-uk-021` webhooks arrive 10–15 minutes late, "not critical, but inconvenient" (0.69 → 0.61): the label
   reads "inconvenient" as neutral.
 
-The other questions did not regress: on every row the category and the priority answer are the same as before,
-so category stays at 94.0% (94/100; en 45/50, uk 49/50) and priority at 83.0% (83/100; en 40/50, uk 43/50),
-within one level 99.0%, with the same confusion matrices, and the decisions at the configured thresholds are
-unchanged (`classified` 73, `category_other` 19, `low_confidence` 8). Priority is 84.0% in the report at commit
-`87939f8` and 83.0% in both runs of this day, run to run noise. Each call sends about 102 more input tokens
-(the Ukrainian examples tokenize long), so the cost per ticket rises from $0.00004955 to $0.00005384.
+The other questions did not regress beyond run to run noise: category stays at 94.0% (94/100; en 45/50, uk
+49/50) with the same confusion matrix, and priority is 82.0% (82/100; en 39/50, uk 43/50) against 83.0%
+before, within one level 99.0% in both, with one more `normal` row answered `low`. The decisions at the
+configured thresholds move by one row (`classified` 73 → 72, `category_other` 19, `low_confidence` 8 → 9).
+Each call sends about 118 more input tokens (the Ukrainian examples tokenize long), so the cost per ticket
+rises from $0.00004955 to $0.00005451.
 
 ## Run
 
@@ -83,7 +82,7 @@ unchanged (`classified` 73, `category_other` 19, `low_confidence` 8). Priority i
 | Classifier | `jev` (provider `openrouter`, model `typesafe/jev-1.14`) |
 | Date | 2026-10-29 |
 | Served model | `typesafe/jev-1.14-20261014` |
-| Eval set | `bitext.jsonl` (30 rows, sha256 `ffb913f4d65f`), `generated.jsonl` (70 rows, sha256 `420bcf4501ea`) |
+| Eval set | `bitext.jsonl` (30 rows, sha256 `848d196e9fec`), `generated.jsonl` (70 rows, sha256 `420bcf4501ea`) |
 | Rows | 100 (en 50, uk 50) |
 | Answered | 100; failed 0 |
 | From cache | 0 |
@@ -98,8 +97,8 @@ the nearest level; "within one level" also counts an answer one level off.
 | Question | all | en | uk |
 |---|---|---|---|
 | Category | 94.0% (94/100) | 90.0% (45/50) | 98.0% (49/50) |
-| Complaint | 97.0% (97/100) | 98.0% (49/50) | 96.0% (48/50) |
-| Priority | 83.0% (83/100) | 80.0% (40/50) | 86.0% (43/50) |
+| Complaint | 95.0% (95/100) | 96.0% (48/50) | 94.0% (47/50) |
+| Priority | 82.0% (82/100) | 78.0% (39/50) | 86.0% (43/50) |
 | Priority, within one level | 99.0% (99/100) | 98.0% (49/50) | 100.0% (50/50) |
 
 ### By hard-case tag
@@ -109,7 +108,7 @@ A row can carry several tags.
 | Tag | Rows | Category | Complaint | Priority |
 |---|---|---|---|---|
 | `surzhyk` | 6 | 100.0% (6/6) | 100.0% (6/6) | 83.3% (5/6) |
-| `typos` | 8 | 100.0% (8/8) | 100.0% (8/8) | 87.5% (7/8) |
+| `typos` | 8 | 100.0% (8/8) | 87.5% (7/8) | 87.5% (7/8) |
 | `angry` | 10 | 100.0% (10/10) | 100.0% (10/10) | 90.0% (9/10) |
 | `vague` | 7 | 85.7% (6/7) | 85.7% (6/7) | 85.7% (6/7) |
 | `mixed_topics` | 5 | 100.0% (5/5) | 100.0% (5/5) | 100.0% (5/5) |
@@ -158,21 +157,21 @@ Rows are the label, columns the answer; answered rows only.
 
 | label \ answer | false | true |
 |---|---|---|
-| false | 78 | 3 |
-| true | 0 | 19 |
+| false | 77 | 5 |
+| true | 0 | 18 |
 
 #### Complaint en
 
 | label \ answer | false | true |
 |---|---|---|
-| false | 37 | 1 |
-| true | 0 | 12 |
+| false | 37 | 2 |
+| true | 0 | 11 |
 
 #### Complaint uk
 
 | label \ answer | false | true |
 |---|---|---|
-| false | 41 | 2 |
+| false | 40 | 3 |
 | true | 0 | 7 |
 
 ### Priority
@@ -182,7 +181,7 @@ Rows are the label, columns the answer; answered rows only.
 | label \ answer | 0 low | 1 normal | 2 high | 3 critical |
 |---|---|---|---|---|
 | 0 low | 29 | 2 | 0 | 0 |
-| 1 normal | 7 | 30 | 2 | 0 |
+| 1 normal | 8 | 29 | 2 | 0 |
 | 2 high | 1 | 2 | 14 | 1 |
 | 3 critical | 0 | 0 | 2 | 10 |
 
@@ -191,7 +190,7 @@ Rows are the label, columns the answer; answered rows only.
 | label \ answer | 0 low | 1 normal | 2 high | 3 critical |
 |---|---|---|---|---|
 | 0 low | 13 | 1 | 0 | 0 |
-| 1 normal | 6 | 18 | 0 | 0 |
+| 1 normal | 7 | 17 | 0 | 0 |
 | 2 high | 1 | 2 | 5 | 0 |
 | 3 critical | 0 | 0 | 0 | 4 |
 
@@ -210,10 +209,10 @@ Rows are the label, columns the answer; answered rows only.
 
 | Status | Reason | all | en | uk |
 |---|---|---|---|---|
-| `classified` | — | 73.0% (73/100) | 70.0% (35/50) | 76.0% (38/50) |
+| `classified` | — | 72.0% (72/100) | 70.0% (35/50) | 74.0% (37/50) |
 | `needs_human` | `category_other` | 19.0% (19/100) | 18.0% (9/50) | 20.0% (10/50) |
-| `needs_human` | `low_confidence` | 8.0% (8/100) | 12.0% (6/50) | 4.0% (2/50) |
-| flag | `complaint_uncertain` | 6.0% (6/100) | 2.0% (1/50) | 10.0% (5/50) |
+| `needs_human` | `low_confidence` | 9.0% (9/100) | 12.0% (6/50) | 6.0% (3/50) |
+| flag | `complaint_uncertain` | 7.0% (7/100) | 4.0% (2/50) | 10.0% (5/50) |
 
 ## Latency
 
@@ -222,9 +221,9 @@ the latency of its original call.
 
 | Language | Answered | p50 | p95 | max |
 |---|---|---|---|---|
-| all | 100 | 222 ms | 341 ms | 1319 ms |
-| en | 50 | 226 ms | 843 ms | 1319 ms |
-| uk | 50 | 218 ms | 304 ms | 341 ms |
+| all | 100 | 206 ms | 369 ms | 796 ms |
+| en | 50 | 212 ms | 784 ms | 796 ms |
+| uk | 50 | 202 ms | 288 ms | 390 ms |
 
 ## Cost
 
@@ -233,7 +232,7 @@ recorded when it was first classified.
 
 | Total | Per ticket | Input tokens | Output tokens | Cost source |
 |---|---|---|---|---|
-| $0.005384 | $0.00005384 | 128180 | 8710 | reported 100 |
+| $0.005451 | $0.00005451 | 129780 | 8710 | reported 100 |
 
 ## Threshold sweep
 
@@ -245,53 +244,53 @@ included; the accuracy columns score only the auto-classified rows. Bold marks t
 
 | CategoryMinConfidence | needs_human | Auto-classified | Category | Priority | Complaint |
 |---|---|---|---|---|---|
-| 0.00 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.05 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.10 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.15 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.20 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.25 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.30 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.35 | 21.0% (21/100) | 79 | 92.4% (73/79) | 83.5% (66/79) | 96.2% (76/79) |
-| 0.40 | 22.0% (22/100) | 78 | 93.6% (73/78) | 83.3% (65/78) | 96.2% (75/78) |
-| 0.45 | 22.0% (22/100) | 78 | 93.6% (73/78) | 83.3% (65/78) | 96.2% (75/78) |
-| 0.50 | 22.0% (22/100) | 78 | 93.6% (73/78) | 83.3% (65/78) | 96.2% (75/78) |
-| 0.55 | 26.0% (26/100) | 74 | 98.6% (73/74) | 83.8% (62/74) | 97.3% (72/74) |
-| **0.60** | 27.0% (27/100) | 73 | 98.6% (72/73) | 83.6% (61/73) | 97.3% (71/73) |
-| 0.65 | 28.0% (28/100) | 72 | 98.6% (71/72) | 83.3% (60/72) | 97.2% (70/72) |
-| 0.70 | 28.0% (28/100) | 72 | 98.6% (71/72) | 83.3% (60/72) | 97.2% (70/72) |
-| 0.75 | 31.0% (31/100) | 69 | 98.6% (68/69) | 84.1% (58/69) | 97.1% (67/69) |
-| 0.80 | 33.0% (33/100) | 67 | 98.5% (66/67) | 86.6% (58/67) | 97.0% (65/67) |
-| 0.85 | 33.0% (33/100) | 67 | 98.5% (66/67) | 86.6% (58/67) | 97.0% (65/67) |
-| 0.90 | 34.0% (34/100) | 66 | 100.0% (66/66) | 86.4% (57/66) | 97.0% (64/66) |
-| 0.95 | 40.0% (40/100) | 60 | 100.0% (60/60) | 85.0% (51/60) | 96.7% (58/60) |
-| 1.00 | 54.0% (54/100) | 46 | 100.0% (46/46) | 87.0% (40/46) | 97.8% (45/46) |
+| 0.00 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.05 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.10 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.15 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.20 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.25 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.30 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.35 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.40 | 22.0% (22/100) | 78 | 92.3% (72/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.45 | 25.0% (25/100) | 75 | 96.0% (72/75) | 82.7% (62/75) | 96.0% (72/75) |
+| 0.50 | 27.0% (27/100) | 73 | 98.6% (72/73) | 82.2% (60/73) | 95.9% (70/73) |
+| 0.55 | 27.0% (27/100) | 73 | 98.6% (72/73) | 82.2% (60/73) | 95.9% (70/73) |
+| **0.60** | 28.0% (28/100) | 72 | 98.6% (71/72) | 81.9% (59/72) | 95.8% (69/72) |
+| 0.65 | 29.0% (29/100) | 71 | 98.6% (70/71) | 81.7% (58/71) | 95.8% (68/71) |
+| 0.70 | 31.0% (31/100) | 69 | 98.6% (68/69) | 82.6% (57/69) | 95.7% (66/69) |
+| 0.75 | 33.0% (33/100) | 67 | 98.5% (66/67) | 83.6% (56/67) | 95.5% (64/67) |
+| 0.80 | 34.0% (34/100) | 66 | 98.5% (65/66) | 84.8% (56/66) | 95.5% (63/66) |
+| 0.85 | 34.0% (34/100) | 66 | 98.5% (65/66) | 84.8% (56/66) | 95.5% (63/66) |
+| 0.90 | 35.0% (35/100) | 65 | 100.0% (65/65) | 84.6% (55/65) | 95.4% (62/65) |
+| 0.95 | 41.0% (41/100) | 59 | 100.0% (59/59) | 83.1% (49/59) | 94.9% (56/59) |
+| 1.00 | 56.0% (56/100) | 44 | 100.0% (44/44) | 86.4% (38/44) | 95.5% (42/44) |
 
 ### UrgencyMinConfidence (CategoryMinConfidence 0.60)
 
 | UrgencyMinConfidence | needs_human | Auto-classified | Category | Priority | Complaint |
 |---|---|---|---|---|---|
-| 0.00 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.05 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.10 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.15 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.20 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.25 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.30 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.35 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.40 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| 0.45 | 25.0% (25/100) | 75 | 98.7% (74/75) | 82.7% (62/75) | 97.3% (73/75) |
-| **0.50** | 27.0% (27/100) | 73 | 98.6% (72/73) | 83.6% (61/73) | 97.3% (71/73) |
-| 0.55 | 29.0% (29/100) | 71 | 98.6% (70/71) | 83.1% (59/71) | 97.2% (69/71) |
-| 0.60 | 32.0% (32/100) | 68 | 98.5% (67/68) | 85.3% (58/68) | 97.1% (66/68) |
-| 0.65 | 33.0% (33/100) | 67 | 98.5% (66/67) | 86.6% (58/67) | 97.0% (65/67) |
-| 0.70 | 35.0% (35/100) | 65 | 98.5% (64/65) | 89.2% (58/65) | 96.9% (63/65) |
-| 0.75 | 36.0% (36/100) | 64 | 98.4% (63/64) | 89.1% (57/64) | 96.9% (62/64) |
-| 0.80 | 38.0% (38/100) | 62 | 98.4% (61/62) | 88.7% (55/62) | 96.8% (60/62) |
-| 0.85 | 46.0% (46/100) | 54 | 98.1% (53/54) | 94.4% (51/54) | 96.3% (52/54) |
-| 0.90 | 54.0% (54/100) | 46 | 100.0% (46/46) | 97.8% (45/46) | 95.7% (44/46) |
-| 0.95 | 59.0% (59/100) | 41 | 100.0% (41/41) | 97.6% (40/41) | 95.1% (39/41) |
-| 1.00 | 90.0% (90/100) | 10 | 100.0% (10/10) | 100.0% (10/10) | 90.0% (9/10) |
+| 0.00 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.05 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.10 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.15 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.20 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.25 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.30 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.35 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.40 | 25.0% (25/100) | 75 | 98.7% (74/75) | 81.3% (61/75) | 94.7% (71/75) |
+| 0.45 | 26.0% (26/100) | 74 | 98.6% (73/74) | 81.1% (60/74) | 94.6% (70/74) |
+| **0.50** | 28.0% (28/100) | 72 | 98.6% (71/72) | 81.9% (59/72) | 95.8% (69/72) |
+| 0.55 | 30.0% (30/100) | 70 | 98.6% (69/70) | 84.3% (59/70) | 95.7% (67/70) |
+| 0.60 | 32.0% (32/100) | 68 | 98.5% (67/68) | 85.3% (58/68) | 95.6% (65/68) |
+| 0.65 | 33.0% (33/100) | 67 | 98.5% (66/67) | 86.6% (58/67) | 95.5% (64/67) |
+| 0.70 | 35.0% (35/100) | 65 | 98.5% (64/65) | 89.2% (58/65) | 95.4% (62/65) |
+| 0.75 | 37.0% (37/100) | 63 | 98.4% (62/63) | 88.9% (56/63) | 95.2% (60/63) |
+| 0.80 | 38.0% (38/100) | 62 | 98.4% (61/62) | 90.3% (56/62) | 95.2% (59/62) |
+| 0.85 | 47.0% (47/100) | 53 | 100.0% (53/53) | 92.5% (49/53) | 94.3% (50/53) |
+| 0.90 | 54.0% (54/100) | 46 | 100.0% (46/46) | 97.8% (45/46) | 93.5% (43/46) |
+| 0.95 | 58.0% (58/100) | 42 | 100.0% (42/42) | 97.6% (41/42) | 92.9% (39/42) |
+| 1.00 | 91.0% (91/100) | 9 | 100.0% (9/9) | 100.0% (9/9) | 88.9% (8/9) |
 
 ### Best trade-offs on the full grid
 
@@ -301,10 +300,10 @@ result are shown once, with the lowest thresholds.
 
 | CategoryMinConfidence | UrgencyMinConfidence | needs_human | Auto-classified | Category | Priority | Complaint |
 |---|---|---|---|---|---|---|
-| 0.00 | 0.00 | 19.0% (19/100) | 81 | 92.6% (75/81) | 82.7% (67/81) | 96.3% (78/81) |
-| 0.40 | 0.00 | 20.0% (20/100) | 80 | 93.8% (75/80) | 82.5% (66/80) | 96.2% (77/80) |
-| 0.55 | 0.00 | 24.0% (24/100) | 76 | 98.7% (75/76) | 82.9% (63/76) | 97.4% (74/76) |
-| 0.90 | 0.00 | 32.0% (32/100) | 68 | 100.0% (68/68) | 85.3% (58/68) | 97.1% (66/68) |
+| 0.00 | 0.00 | 19.0% (19/100) | 81 | 92.6% (75/81) | 81.5% (66/81) | 93.8% (76/81) |
+| 0.45 | 0.00 | 22.0% (22/100) | 78 | 96.2% (75/78) | 82.1% (64/78) | 94.9% (74/78) |
+| 0.50 | 0.00 | 24.0% (24/100) | 76 | 98.7% (75/76) | 81.6% (62/76) | 94.7% (72/76) |
+| 0.90 | 0.00 | 32.0% (32/100) | 68 | 100.0% (68/68) | 83.8% (57/68) | 94.1% (64/68) |
 
 ## Reproduce
 

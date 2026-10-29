@@ -15,7 +15,7 @@
 | Classifier | `fake` (provider `fake`, model `fake-keywords-1`) |
 | Date | — |
 | Served model | `fake-keywords-1` |
-| Eval set | `bitext.jsonl` (30 rows, sha256 `ffb913f4d65f`), `generated.jsonl` (70 rows, sha256 `420bcf4501ea`) |
+| Eval set | `bitext.jsonl` (30 rows, sha256 `848d196e9fec`), `generated.jsonl` (70 rows, sha256 `420bcf4501ea`) |
 | Rows | 100 (en 50, uk 50) |
 | Answered | 100; failed 0 |
 | From cache | 0 |
@@ -30,7 +30,7 @@ the nearest level; "within one level" also counts an answer one level off.
 | Question | all | en | uk |
 |---|---|---|---|
 | Category | 72.0% (72/100) | 78.0% (39/50) | 66.0% (33/50) |
-| Complaint | 88.0% (88/100) | 86.0% (43/50) | 90.0% (45/50) |
+| Complaint | 89.0% (89/100) | 88.0% (44/50) | 90.0% (45/50) |
 | Priority | 50.0% (50/100) | 54.0% (27/50) | 46.0% (23/50) |
 | Priority, within one level | 92.0% (92/100) | 92.0% (46/50) | 92.0% (46/50) |
 
@@ -90,15 +90,15 @@ Rows are the label, columns the answer; answered rows only.
 
 | label \ answer | false | true |
 |---|---|---|
-| false | 81 | 0 |
-| true | 12 | 7 |
+| false | 82 | 0 |
+| true | 11 | 7 |
 
 #### Complaint en
 
 | label \ answer | false | true |
 |---|---|---|
-| false | 38 | 0 |
-| true | 7 | 5 |
+| false | 39 | 0 |
+| true | 6 | 5 |
 
 #### Complaint uk
 

@@ -42,6 +42,7 @@ var complaintGuidelines = guidelines{
 		"Questions, requests and neutral, factual problem reports are not complaints, even when something is " +
 			"broken or money was lost.",
 		"A polite report of a double charge asking for a refund is not a complaint.",
+		"A calm question about how to get a refund or compensation is not a complaint.",
 		"A calm, factual report of an error, a crash or something not working is not a complaint in any " +
 			"language, even when it stops work (\"застосунок вилітає, коли я експортую звіт\"); the same " +
 			"report with dissatisfaction (\"знову вилітає, скільки можна терпіти\") is a complaint.",

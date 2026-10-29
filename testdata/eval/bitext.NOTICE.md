@@ -16,6 +16,3 @@ The data is published under the Community Data License Agreement – Sharing, Ve
 - replaced the `{{...}}` placeholders in `instruction` with invented values and stored the result as `body`;
 - added `id`, `source`, `lang`, a `subject` cut from the body, and the labels `expected_category`,
   `expected_complaint` and `expected_urgency` drafted for this project.
-
-After the import, the label `expected_complaint` of one row was changed by hand; `README.md` in this directory
-lists it.

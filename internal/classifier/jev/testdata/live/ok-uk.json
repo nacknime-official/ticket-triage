@@ -1,7 +1,7 @@
 {
   "case": "ok",
   "ticket": "gen-uk-001",
-  "recorded_at": "2026-10-29T21:08:34Z",
+  "recorded_at": "2026-10-29T21:18:24Z",
   "method": "POST",
   "url": "https://openrouter.ai/api/v1/systemone",
   "request": {
@@ -16,7 +16,7 @@
         "instructions": "Does the customer in `subject` and `body` express dissatisfaction?",
         "criteria": {
           "true": "The customer expresses dissatisfaction: anger, blame, sarcasm, \"again\", a threat to leave or to escalate, a demand for compensation, profanity, or an explicit claim or complaint. Profanity or insults aimed at the product or company are a complaint. Asking how to file a complaint or claim is a complaint. \"You charged me AGAIN, refund it now\" is a complaint.",
-          "false": "Questions, requests and neutral, factual problem reports are not complaints, even when something is broken or money was lost. A polite report of a double charge asking for a refund is not a complaint. A calm, factual report of an error, a crash or something not working is not a complaint in any language, even when it stops work (\"застосунок вилітає, коли я експортую звіт\"); the same report with dissatisfaction (\"знову вилітає, скільки можна терпіти\") is a complaint. A formal request with a conditional legal step but no dissatisfaction (\"otherwise I will have to contact the ombudsman\") is not a complaint."
+          "false": "Questions, requests and neutral, factual problem reports are not complaints, even when something is broken or money was lost. A polite report of a double charge asking for a refund is not a complaint. A calm question about how to get a refund or compensation is not a complaint. A calm, factual report of an error, a crash or something not working is not a complaint in any language, even when it stops work (\"застосунок вилітає, коли я експортую звіт\"); the same report with dissatisfaction (\"знову вилітає, скільки можна терпіти\") is a complaint. A formal request with a conditional legal step but no dissatisfaction (\"otherwise I will have to contact the ombudsman\") is not a complaint."
         }
       },
       "category": {
@@ -43,10 +43,10 @@
     }
   },
   "status": 200,
-  "latency_ms": 464,
+  "latency_ms": 255,
   "header": {
     "content-type": "application/json",
-    "x-generation-id": "gen-dec-1793308114-SOc4M7phdBRGyJK2k5v2",
+    "x-generation-id": "gen-dec-1793308704-lwqMAnvbFLlFOWh0MQGZ",
     "x-provider-name": "TypeSafe"
   },
   "body": {
@@ -70,7 +70,7 @@
       },
       "urgency": {
         "type": "score",
-        "score": 1.99,
+        "score": 1.98,
         "legend": {
           "0": "Low: nothing is broken and there is no time pressure. How-to and pricing questions, feature ideas, thanks, partnerships and newsletter requests are low. A feature request is low, unless the missing feature already costs the customer work or blocks a rollout. A bare \"question about my bill\" is low.",
           "1": "Normal: the customer needs something done or has a problem, but has a workaround or nothing is blocked yet. Cancelling an order, getting an invoice, a refund for unused time, a bug with a workaround and slowness are normal. Asking how to reset a forgotten password is normal: there is a self-service path. A missing feature that already costs the customer work or blocks a rollout (manual reconciliation every day, \"security requires SSO before we roll you out\") is normal. Something that \"works strangely\" does not block the customer and is normal.",
@@ -87,11 +87,11 @@
       }
     },
     "usage": {
-      "input_tokens": 1332,
+      "input_tokens": 1348,
       "output_tokens": 87,
-      "cost": 0.000055944
+      "cost": 0.000056616
     },
-    "id": "gen-dec-1793308114-SOc4M7phdBRGyJK2k5v2",
+    "id": "gen-dec-1793308704-lwqMAnvbFLlFOWh0MQGZ",
     "provider": "TypeSafe"
   }
 }
