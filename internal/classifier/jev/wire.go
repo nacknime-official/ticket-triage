@@ -91,7 +91,7 @@ func decodeUsage(raw jsontext.Value) usage {
 	return u
 }
 
-// Answer shapes (README §7, seen live in T12): noul → {type, noul: P(yes)}
+// Answer shapes (PRD §7, seen live in T12): noul → {type, noul: P(yes)}
 // without a confidence; choice → {type, choice, probabilities: {option: p},
 // confidence}; score → {type, score, legend: {"0": level, ...},
 // probabilities: {"0": p, ...}, confidence}. Only the fields the triage uses

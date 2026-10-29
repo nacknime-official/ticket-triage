@@ -27,7 +27,7 @@ type Store interface {
 	// that matches only while it is still pending, then one audit row per
 	// call. It reports false, having written nothing, when the ticket was no
 	// longer pending. The status event of a final update joins this
-	// transaction too (README §2, step 4).
+	// transaction too (PRD §2, step 4).
 	Apply(ctx context.Context, u Update) (bool, error)
 }
 
@@ -199,7 +199,7 @@ type retryAfterer interface {
 	RetryAfter() time.Duration
 }
 
-// Process classifies the ticket with the id (README §3.3, §4.2): skip unless
+// Process classifies the ticket with the id (PRD §3.3, §4.2): skip unless
 // pending, check the daily budget, call the classifier with a per-call
 // timeout and in-process retries, apply the policy, and write the result with
 // the audit rows through Store.Apply.
@@ -279,7 +279,7 @@ func (p *Processor) Process(ctx context.Context, ticketID string) (Outcome, erro
 // GiveUp fails the ticket with the id open: it moves the ticket to
 // needs_human with reason classifier_unavailable if it is still pending. The
 // transport calls it before it sends a message to the dead-letter queue
-// because its retries ran out (README §4.2, level 3), so the ticket reaches a
+// because its retries ran out (PRD §4.2, level 3), so the ticket reaches a
 // person instead of staying pending.
 //
 // It returns Done when it moved the ticket, Skipped when the ticket was no
@@ -430,7 +430,7 @@ func lastError(calls []Call) string {
 	return s
 }
 
-// logCall writes the per-call log line of README §4.3.
+// logCall writes the per-call log line of PRD §4.3.
 func (p *Processor) logCall(ctx context.Context, id uuid.UUID, attempt int, c classifier.Call, err error) {
 	level := slog.LevelInfo
 	attrs := []slog.Attr{

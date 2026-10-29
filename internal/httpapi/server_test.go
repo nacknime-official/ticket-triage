@@ -32,7 +32,7 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-// TestNewServerLongRequest guards the premise of README §4.1: without a
+// TestNewServerLongRequest guards the premise of PRD §4.1: without a
 // server-wide WriteTimeout, ReadTimeout alone does not end a long-running
 // response such as an SSE stream.
 func TestNewServerLongRequest(t *testing.T) {

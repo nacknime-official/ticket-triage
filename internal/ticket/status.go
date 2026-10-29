@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Status is the lifecycle state of a ticket (README §3.2).
+// Status is the lifecycle state of a ticket (PRD §3.2).
 type Status string
 
 const (

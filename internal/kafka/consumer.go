@@ -81,7 +81,7 @@ func consumerOpts(group, topic string) []kgo.Opt {
 	}
 }
 
-// Consumer is the classifier consumer loop of README §4.2 and §5: poll a
+// Consumer is the classifier consumer loop of PRD §4.2 and §5: poll a
 // batch, process its records in a bounded pool, and commit the batch only
 // once every record is processed. Call Run once, and Stop to drain it.
 //

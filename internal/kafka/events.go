@@ -18,7 +18,7 @@ type EventSink interface {
 }
 
 // EventsOpts returns the client options of a tickets.events reader: no
-// consumer group, so every API instance reads every event (fan-out, README
+// consumer group, so every API instance reads every event (fan-out, PRD
 // §3.4), starting at the end of each partition. Events from before the start
 // are not needed: an SSE stream reads the current state from Postgres after
 // subscribing.

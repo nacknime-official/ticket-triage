@@ -546,7 +546,7 @@ func TestBudgetGuard(t *testing.T) {
 	}
 }
 
-// TestCallLog checks the per-call log line: the fields of README §4.3 and no
+// TestCallLog checks the per-call log line: the fields of PRD §4.3 and no
 // ticket text.
 func TestCallLog(t *testing.T) {
 	var buf bytes.Buffer

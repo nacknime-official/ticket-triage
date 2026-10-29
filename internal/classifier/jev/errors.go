@@ -49,7 +49,7 @@ func (e *Error) HTTPStatus() int { return e.status }
 // there was none. The processor reads it through an interface it declares.
 func (e *Error) RetryAfter() time.Duration { return e.retryAfter }
 
-// statusKind maps a non-2xx status to a classifier error (README §7).
+// statusKind maps a non-2xx status to a classifier error (PRD §7).
 func statusKind(status int) error {
 	switch {
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:

@@ -120,7 +120,7 @@ Intent-based drafts are coarse. Rows a reviewer should look at first:
 
 ## Labeling guidelines
 
-The labels answer the three questions of README §3.3. Label what the text says, not what the customer might
+The labels answer the three questions of PRD §3.3. Label what the text says, not what the customer might
 mean beyond it.
 
 ### Category

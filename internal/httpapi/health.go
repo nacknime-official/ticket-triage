@@ -26,7 +26,7 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 // readyz handles GET /readyz: 200 while the database answers a ping, 503
-// otherwise (README §4.3).
+// otherwise (PRD §4.3).
 func (a *api) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
 	defer cancel()

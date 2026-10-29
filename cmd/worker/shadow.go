@@ -1,6 +1,6 @@
 package main
 
-// "worker shadow" re-classifies history in shadow mode (README §6.1, T24).
+// "worker shadow" re-classifies history in shadow mode (PRD §6.1, T24).
 //
 // Usage: worker shadow [-run-id ID] [-from earliest|RFC3339] [-max-tickets N] [-dry-run]
 //

@@ -10,7 +10,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
-// Classifier answers the three triage questions of README §3.3 for one ticket.
+// Classifier answers the three triage questions of PRD §3.3 for one ticket.
 //
 // On error the returned Result carries no answers, but its Call may still
 // describe the failed call (latency, HTTP status, raw response) for the audit
@@ -56,7 +56,7 @@ type Result struct {
 }
 
 // Call describes one classifier call for the per-call log line and the
-// classifications audit row (README §4.3).
+// classifications audit row (PRD §4.3).
 type Call struct {
 	Provider string
 	// Model is the model as served, taken from the response; empty when there

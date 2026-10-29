@@ -6,7 +6,7 @@ import (
 	"slices"
 )
 
-// Category names of the default taxonomy (README §3.3).
+// Category names of the default taxonomy (PRD §3.3).
 const (
 	CategoryBilling        = "billing"
 	CategoryTechnical      = "technical"
@@ -25,7 +25,7 @@ type Category struct {
 // Taxonomy is the ordered list of categories a classifier chooses from.
 type Taxonomy []Category
 
-// DefaultTaxonomy returns the categories of README §3.3.
+// DefaultTaxonomy returns the categories of PRD §3.3.
 func DefaultTaxonomy() Taxonomy {
 	return Taxonomy{
 		{CategoryBilling, "Payments, invoices, refunds, double charges, pricing, subscriptions"},

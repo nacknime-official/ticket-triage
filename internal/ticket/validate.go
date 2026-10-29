@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// Default text limits in characters (runes), not bytes (README §3.1).
+// Default text limits in characters (runes), not bytes (PRD §3.1).
 const (
 	DefaultMaxSubjectChars = 200
 	DefaultMaxBodyChars    = 5000

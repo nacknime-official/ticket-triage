@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of cmd/api against the local compose stack; `make smoke` starts
 # the stack first. It migrates the database, builds and starts the API, checks
-# the public contract (README §3.1, §4.1) over HTTP, then stops the API with
+# the public contract (PRD §3.1, §4.1) over HTTP, then stops the API with
 # SIGTERM and expects a clean shutdown. Needs curl and jq.
 #
 # The API listens on SMOKE_ADDR and SMOKE_DEBUG_ADDR (defaults below), so a

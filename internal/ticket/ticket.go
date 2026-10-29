@@ -43,7 +43,7 @@ func (t Ticket) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// Message is the user-facing status message (README §2, §3.1).
+// Message is the user-facing status message (PRD §2, §3.1).
 func (t Ticket) Message() string {
 	switch t.Status {
 	case StatusPending:
@@ -69,7 +69,7 @@ type Classification struct {
 	// IsComplaint is the complaint flag decided from ComplaintP.
 	IsComplaint bool
 	// ComplaintUncertain means ComplaintP fell inside the configured uncertain
-	// band (README §3.3); the status is unaffected.
+	// band (PRD §3.3); the status is unaffected.
 	ComplaintUncertain bool
 	// Urgency is the weighted urgency level in [0, 3].
 	Urgency           float64
@@ -81,7 +81,7 @@ func (c Classification) Priority() Priority {
 	return PriorityFromUrgency(c.Urgency)
 }
 
-// Priority is a discrete urgency level (README §3.3).
+// Priority is a discrete urgency level (PRD §3.3).
 type Priority int
 
 const (

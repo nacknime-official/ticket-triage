@@ -1,7 +1,7 @@
 # Ticket Triage — Product Requirements
 
-Status: draft PRD, 2026-10-28. This README holds the PRD until there is code; a later task turns it into a
-regular project README and moves the PRD under `docs/`.
+Status: draft PRD, 2026-10-28. It was the top-level README until there was code; T25 moved it here, and the
+[README](../README.md) now describes the service as built.
 
 Facts tagged **[unverified]** come from documentation or third-party write-ups and have not been confirmed by
 a live call or a local run. The adapter and the probe task (T12) are designed to absorb any differences.

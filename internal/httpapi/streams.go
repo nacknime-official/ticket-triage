@@ -14,7 +14,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
-// Defaults of the zero fields of Streams (README §3.4).
+// Defaults of the zero fields of Streams (PRD §3.4).
 const (
 	DefaultHeartbeat          = 15 * time.Second
 	DefaultMaxStreamDuration  = 10 * time.Minute
@@ -96,7 +96,7 @@ func (a *api) issueStreamToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamEvents handles GET /tickets/{id}/events?token=: the SSE stream of
-// README §3.4. It consumes the stream token, subscribes to the hub and only
+// PRD §3.4. It consumes the stream token, subscribes to the hub and only
 // then reads the current state, so a status change between submit and
 // subscribe is not lost: it is either in the state read or in the hub. The
 // first event is that state; then each status change follows, with a

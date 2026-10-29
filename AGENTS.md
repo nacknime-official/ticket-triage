@@ -4,8 +4,8 @@ Rules for every coding agent working in this repository.
 
 ## Source of truth
 
-- `README.md` is the approved PRD: behavior, API contracts, security controls, roadmap (§10).
-  If code or a task disagrees with it, the README wins; raise the conflict instead of guessing.
+- `docs/prd.md` is the approved PRD: behavior, API contracts, security controls, roadmap (§10).
+  If code or a task disagrees with it, the PRD wins; raise the conflict instead of guessing.
 - Each roadmap task is one reviewable change with its own tests.
 
 ## Commands

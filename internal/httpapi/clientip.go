@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ClientIP resolves the client address of a request (README §4.1). The
+// ClientIP resolves the client address of a request (PRD §4.1). The
 // address is RemoteAddr, unless RemoteAddr is a trusted proxy: then
 // X-Forwarded-For is walked from the right, past every trusted proxy, and
 // the first untrusted hop is the client. Entries left of that hop are written

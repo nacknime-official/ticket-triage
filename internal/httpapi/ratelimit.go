@@ -22,7 +22,7 @@ type RateLimit struct {
 	MaxClients int     // clients tracked at once; 0 means DefaultMaxClients
 }
 
-// RateLimiter is an in-memory token bucket per client (README §4.1). A
+// RateLimiter is an in-memory token bucket per client (PRD §4.1). A
 // client is one IPv4 address or one IPv6 /64, since a single IPv6 host
 // usually controls a whole /64.
 //

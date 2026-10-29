@@ -1,5 +1,5 @@
 // Command eval runs a classifier over the labeled eval set in testdata/eval and
-// writes a markdown report (README §8): per-question accuracy and confusion
+// writes a markdown report (PRD §8): per-question accuracy and confusion
 // matrices split by language, the decisions at the configured thresholds,
 // p50/p95 latency, cost, and a sweep of the confidence thresholds. It can also
 // write one JSON line per ticket with the answers and call metadata, without

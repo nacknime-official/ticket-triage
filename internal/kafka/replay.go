@@ -99,7 +99,7 @@ type ReplayResult struct {
 }
 
 // Replayer reads the history of tickets.submitted in its own consumer group
-// and hands each ticket to a ReplayProcessor (README §6.1). It only consumes:
+// and hands each ticket to a ReplayProcessor (PRD §6.1). It only consumes:
 // it never produces, and commits only its own group's offsets. Unlike the
 // classifier consumer it stops by itself at the end of the history.
 type Replayer struct {
