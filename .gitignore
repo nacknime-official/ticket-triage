@@ -3,7 +3,6 @@
 
 # Build and test output.
 /bin/
-/eval
 *.test
 *.out
 coverage.*
