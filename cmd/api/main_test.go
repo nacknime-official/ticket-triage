@@ -164,6 +164,7 @@ func TestHandlerMiddleware(t *testing.T) {
 		{"other client via trusted proxy", http.MethodPost, "/tickets", submit, from("198.51.100.2"),
 			http.StatusAccepted, false},
 		{"other routes not rate limited", http.MethodGet, "/healthz", "", from("198.51.100.1"), http.StatusOK, false},
+		{"built-in page", http.MethodGet, "/", "", from("198.51.100.1"), http.StatusOK, false},
 		{"get stays 404", http.MethodGet, "/tickets/" + uuid.NewV7().String(), "", from("198.51.100.1"),
 			http.StatusNotFound, false},
 	}

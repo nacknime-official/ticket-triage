@@ -23,8 +23,8 @@ type TicketService interface {
 type Middleware func(http.Handler) http.Handler
 
 // NewHandler returns the API handler: the ticket, stream-token and SSE
-// routes and the health checks behind the request-id and access-log
-// middleware. GET /readyz pings ready.
+// routes, the health checks and the built-in page behind the request-id and
+// access-log middleware. GET /readyz pings ready.
 //
 // The extra middleware (limits, security headers, client IP) runs inside the
 // access log, the first one outermost, so every response it writes is logged
@@ -41,6 +41,7 @@ func NewHandler(svc TicketService, streams Streams, ready Pinger, logger *slog.L
 	mux.HandleFunc("GET /tickets/{id}/events", api.streamEvents)
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /readyz", api.readyz)
+	handlePage(mux)
 	// Other methods on known paths get the JSON 405, other paths the JSON 404,
 	// instead of the mux's plain-text defaults.
 	mux.Handle("/tickets", methodNotAllowed(http.MethodPost))
