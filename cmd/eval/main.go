@@ -12,9 +12,9 @@
 //
 // Configuration comes from the environment as in the service (CLASSIFIER,
 // JEV_*, OPENROUTER_API_KEY, the threshold variables); -env-file fills in
-// variables the environment leaves unset. Jev answers are cached per ticket and
-// model in a git-ignored file, so re-rendering costs nothing. Never run the
-// live classifier from tests or CI.
+// variables the environment leaves unset. Jev answers are cached per ticket,
+// model and question set in a git-ignored file, so re-rendering costs nothing.
+// Never run the live classifier from tests or CI.
 package main
 
 import (
@@ -89,7 +89,8 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.data, "data", "testdata/eval", "directory of eval set *.jsonl files")
 	fs.StringVar(&o.out, "out", "", "markdown report path (default "+defaultLiveOut+" for jev, "+defaultFakeOut+" for the fake)")
 	fs.StringVar(&o.jsonl, "jsonl", "", "optional per-ticket results JSONL path, kept outside the repository")
-	fs.StringVar(&o.cache, "cache", defaultCache, "git-ignored cache of answers per ticket and model; empty disables it; "+
+	fs.StringVar(&o.cache, "cache", defaultCache, "git-ignored cache of answers per ticket, model and hash of the Jev questions; "+
+		"a question change misses; empty disables it; "+
 		"not used by the fake, which is free and deterministic")
 	fs.BoolVar(&o.refresh, "refresh", false, "call the classifier even for cached answers and overwrite them")
 	fs.IntVar(&o.concurrency, "concurrency", 0, "rows classified at once (default JEV_MAX_CONCURRENCY); "+
@@ -162,7 +163,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, now fun
 	out := o.out
 	switch clfCfg.Kind {
 	case config.ClassifierJev:
-		r.clf, err = jev.New(jev.Config{
+		client, err := jev.New(jev.Config{
 			Provider:             clfCfg.Jev.Provider,
 			APIKey:               clfCfg.Jev.APIKey.Reveal(),
 			Model:                clfCfg.Jev.Model,
@@ -176,6 +177,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, now fun
 		if err != nil {
 			return err
 		}
+		r.clf, r.questions = client, client.QuestionsSHA256()
 		r.provider, r.model = clfCfg.Jev.Provider, clfCfg.Jev.Model
 		if out == "" {
 			out = defaultLiveOut

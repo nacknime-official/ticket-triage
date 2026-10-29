@@ -31,8 +31,9 @@ type runner struct {
 	clf classifier.Classifier
 	// tax validates every answer, cached ones included.
 	tax classifier.Taxonomy
-	// provider and model are the cache key of this classifier.
-	provider, model string
+	// provider, model and questions (the questions hash) are the cache key
+	// of this classifier.
+	provider, model, questions string
 	// cache is nil when caching is off.
 	cache *cache
 	// refresh skips cache reads; answers are still written.
@@ -98,7 +99,7 @@ feed:
 // classify answers one row. The error is fatal to the whole run.
 func (r *runner) classify(ctx context.Context, row evalset.Row) (outcome, error) {
 	o := outcome{Row: row}
-	key := newCacheKey(r.provider, r.model, row)
+	key := newCacheKey(r.provider, r.model, r.questions, row)
 	if r.cache != nil && !r.refresh {
 		// An entry that no longer validates, say after a taxonomy change, is a miss.
 		if res, ok := r.cache.get(key); ok && res.Validate(r.tax) == nil {

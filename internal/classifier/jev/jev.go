@@ -3,6 +3,8 @@ package jev
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -114,6 +116,7 @@ type Client struct {
 	timeout  time.Duration
 	price    float64
 	tax      classifier.Taxonomy
+	qsum     string // see QuestionsSHA256
 	http     *http.Client
 	logger   *slog.Logger
 	limiter  *rate.Limiter
@@ -170,6 +173,11 @@ func New(cfg Config) (*Client, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	q, err := json.Marshal(buildQuestions(tax))
+	if err != nil {
+		return nil, fmt.Errorf("jev: encode questions: %w", err)
+	}
+	qsum := sha256.Sum256(q)
 	return &Client{
 		provider: cfg.Provider,
 		url:      strings.TrimSuffix(base, "/") + endpointPath,
@@ -178,6 +186,7 @@ func New(cfg Config) (*Client, error) {
 		timeout:  cfg.Timeout,
 		price:    cfg.InputPricePerMTokUSD,
 		tax:      tax,
+		qsum:     hex.EncodeToString(qsum[:]),
 		http:     hc,
 		logger:   logger,
 		limiter:  rate.NewLimiter(rate.Limit(cfg.RateLimit), 1),
@@ -200,6 +209,12 @@ func newHTTPClient(maxConcurrency int) *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
+
+// QuestionsSHA256 returns the hex SHA-256 of the questions object every
+// Classify sends, byte for byte: any change to a question's instructions,
+// criteria, type or order, or to the taxonomy, changes it. cmd/eval keys its
+// answer cache on it, so answers to old questions are not reused.
+func (c *Client) QuestionsSHA256() string { return c.qsum }
 
 // Classify implements classifier.Classifier with exactly one HTTP call. It
 // waits for a concurrency slot and the rate limiter first; a ctx done while

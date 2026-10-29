@@ -367,9 +367,10 @@ func renderReproduce(b *bytes.Buffer) {
 		"with the key from `~/.config/ticket-triage/.env`, stops if the calls cost more than `-max-cost` ($0.05),\n" +
 		"and writes `" + defaultLiveOut + "`:\n\n")
 	fmt.Fprintf(b, "```sh\n%s\n```\n\n", liveCommand)
-	b.WriteString("Answers are cached per ticket and model in `.cache/eval/results.jsonl` (git-ignored), so re-rendering\n" +
-		"the report or re-running the sweep costs nothing. `-refresh` calls Jev again, for example after the adapter\n" +
-		"or its questions change. `-limit 5` makes a small first run. `go run ./cmd/eval -h` lists every flag.\n")
+	b.WriteString("Answers are cached per ticket, model and hash of the Jev questions in `.cache/eval/results.jsonl`\n" +
+		"(git-ignored), so re-rendering the report or re-running the sweep costs nothing, and a question change\n" +
+		"calls Jev again for every row. `-refresh` calls Jev again regardless, for example after another adapter\n" +
+		"change. `-limit 5` makes a small first run. `go run ./cmd/eval -h` lists every flag.\n")
 }
 
 // table writes a markdown table.

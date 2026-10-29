@@ -56,7 +56,7 @@ func testRows(n int) []evalset.Row {
 
 func newRunner(clf classifier.Classifier) *runner {
 	return &runner{
-		clf: clf, tax: classifier.DefaultTaxonomy(), provider: "test", model: "model-1",
+		clf: clf, tax: classifier.DefaultTaxonomy(), provider: "test", model: "model-1", questions: "questions-1",
 		concurrency: 4, retries: 2, backoff: time.Second,
 	}
 }
@@ -170,7 +170,7 @@ func TestRunnerCostCap(t *testing.T) {
 		defer c.Close()
 		rows := testRows(10)
 		for _, row := range rows {
-			if err := c.put(newCacheKey("test", "model-1", row), validResult(0)); err != nil {
+			if err := c.put(newCacheKey("test", "model-1", "questions-1", row), validResult(0)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -262,7 +262,7 @@ func TestRunnerCache(t *testing.T) {
 		return validResult(120 * time.Millisecond), nil
 	})
 	// pass runs rows with a fresh runner over the cache file, as a new process would.
-	pass := func(t *testing.T, model string, refresh bool, rows []evalset.Row) []outcome {
+	pass := func(t *testing.T, model, questions string, refresh bool, rows []evalset.Row) []outcome {
 		t.Helper()
 		c, err := openCache(path)
 		if err != nil {
@@ -274,7 +274,7 @@ func TestRunnerCache(t *testing.T) {
 			}
 		}()
 		r := newRunner(clf)
-		r.cache, r.model, r.refresh = c, model, refresh
+		r.cache, r.model, r.questions, r.refresh = c, model, questions, refresh
 		outs, err := r.run(t.Context(), rows)
 		if err != nil {
 			t.Fatal(err)
@@ -293,10 +293,10 @@ func TestRunnerCache(t *testing.T) {
 		}
 	}
 
-	first := pass(t, "model-1", false, rows)
+	first := pass(t, "model-1", "questions-1", false, rows)
 	check(t, first, 3, false, false, false)
 
-	second := pass(t, "model-1", false, rows)
+	second := pass(t, "model-1", "questions-1", false, rows)
 	// The failed row is not cached, so it is called again.
 	check(t, second, 1, true, true, false)
 	want := first[0].Result
@@ -307,15 +307,44 @@ func TestRunnerCache(t *testing.T) {
 	}
 
 	t.Run("another model misses", func(t *testing.T) {
-		check(t, pass(t, "model-2", false, rows[:1]), 1, false)
+		check(t, pass(t, "model-2", "questions-1", false, rows[:1]), 1, false)
+	})
+	t.Run("changed questions miss", func(t *testing.T) {
+		check(t, pass(t, "model-1", "questions-2", false, rows[:2]), 2, false, false)
+		// The answers to the old questions stay for a run that sends them again.
+		check(t, pass(t, "model-1", "questions-1", false, rows[:2]), 0, true, true)
+	})
+	t.Run("a line without the questions hash misses", func(t *testing.T) {
+		old := filepath.Join(t.TempDir(), "old.jsonl")
+		k := newCacheKey("test", "model-1", "questions-1", rows[0])
+		line := fmt.Sprintf(`{"provider":"test","model":"model-1","id":%q,"text_sha256":%q,"complaint_p":0.2,`+
+			`"category":"billing","category_confidence":0.9,"urgency":1.2,"urgency_confidence":0.8}`+"\n",
+			k.ID, k.TextSHA256)
+		if err := os.WriteFile(old, []byte(line), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := openCache(old)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		if c.Skipped != 0 {
+			t.Errorf("Skipped = %d, want 0: an old line is a miss, not an error", c.Skipped)
+		}
+		if _, ok := c.get(k); ok {
+			t.Error("a line without the questions hash hit")
+		}
+		if _, ok := c.get(newCacheKey("test", "model-1", "", rows[0])); !ok {
+			t.Error("the old line did not load")
+		}
 	})
 	t.Run("edited text misses", func(t *testing.T) {
 		edited := []evalset.Row{rows[0]}
 		edited[0].Body += " edited"
-		check(t, pass(t, "model-1", false, edited), 1, false)
+		check(t, pass(t, "model-1", "questions-1", false, edited), 1, false)
 	})
 	t.Run("refresh calls again", func(t *testing.T) {
-		check(t, pass(t, "model-1", true, rows[1:2]), 1, false)
+		check(t, pass(t, "model-1", "questions-1", true, rows[1:2]), 1, false)
 	})
 	t.Run("a broken line is skipped", func(t *testing.T) {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
@@ -336,7 +365,7 @@ func TestRunnerCache(t *testing.T) {
 		if c.Skipped != 1 {
 			t.Errorf("Skipped = %d, want 1", c.Skipped)
 		}
-		if _, ok := c.get(newCacheKey("test", "model-1", rows[1])); !ok {
+		if _, ok := c.get(newCacheKey("test", "model-1", "questions-1", rows[1])); !ok {
 			t.Error("entry before the broken line is gone")
 		}
 	})
