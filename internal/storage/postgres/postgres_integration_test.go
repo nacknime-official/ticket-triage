@@ -28,6 +28,9 @@ const postgresImage = "pgvector/pgvector:0.8.7-pg16"
 // submittedTopic is the outbox topic Tickets.Submit writes to.
 const submittedTopic = "tickets.submitted"
 
+// eventsTopic is the outbox topic TriageStore.Apply writes status events to.
+const eventsTopic = "tickets.events"
+
 // newPool starts a fresh Postgres container, applies every migration and
 // returns a pool connected to it.
 func newPool(t *testing.T) *pgxpool.Pool {

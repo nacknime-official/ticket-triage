@@ -66,7 +66,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, logOut 
 	if err != nil {
 		return err
 	}
-	proc := triage.NewProcessor(postgres.NewTriageStore(pool), cls, triage.Config{
+	proc := triage.NewProcessor(postgres.NewTriageStore(pool, kafka.TopicEvents), cls, triage.Config{
 		Thresholds: classifier.Thresholds{
 			CategoryMinConfidence:  thrCfg.CategoryMinConfidence,
 			UrgencyMinConfidence:   thrCfg.UrgencyMinConfidence,

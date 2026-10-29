@@ -123,12 +123,12 @@ func submit(t *testing.T, pool *pgxpool.Pool, n int) []string {
 	return ids
 }
 
-// consume reads records from tickets.submitted until it has want of them,
-// then reads for a short while more to catch duplicates.
-func consume(t *testing.T, cluster *kfake.Cluster, want int) []*kgo.Record {
+// consume reads records from topic until it has want of them, then reads for
+// a short while more to catch duplicates.
+func consume(t *testing.T, cluster *kfake.Cluster, topic string, want int) []*kgo.Record {
 	t.Helper()
 	cl, err := kafka.NewClient(cluster.ListenAddrs(), "outbox-test-consumer",
-		kgo.ConsumeTopics(kafka.TopicSubmitted), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+		kgo.ConsumeTopics(topic), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
 	if err != nil {
 		t.Fatalf("NewClient consumer: %v", err)
 	}
@@ -145,7 +145,7 @@ func consume(t *testing.T, cluster *kfake.Cluster, want int) []*kgo.Record {
 			return recs
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("got %d records on %s, want %d", len(recs), kafka.TopicSubmitted, want)
+			t.Fatalf("got %d records on %s, want %d", len(recs), topic, want)
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 		fetches := cl.PollFetches(ctx)
@@ -184,7 +184,7 @@ func TestSubmittedTicketReachesKafka(t *testing.T) {
 	startRelay(t, pool, cluster, outbox.Config{PollInterval: 20 * time.Millisecond})
 
 	id := submit(t, pool, 1)[0]
-	recs := consume(t, cluster, 1)
+	recs := consume(t, cluster, kafka.TopicSubmitted, 1)
 	if len(recs) != 1 {
 		t.Fatalf("got %d records, want 1", len(recs))
 	}
@@ -214,7 +214,7 @@ func TestTwoRelaysDoNotDuplicate(t *testing.T) {
 	startRelay(t, pool, cluster, cfg)
 
 	waitPublished(t, pool)
-	recs := consume(t, cluster, n)
+	recs := consume(t, cluster, kafka.TopicSubmitted, n)
 	seen := map[string]int{}
 	for _, r := range recs {
 		seen[string(r.Key)]++
@@ -298,7 +298,7 @@ func TestFailedProduceIsRetried(t *testing.T) {
 
 	failing.Store(false)
 	waitPublished(t, pool)
-	recs := consume(t, cluster, 1)
+	recs := consume(t, cluster, kafka.TopicSubmitted, 1)
 	if len(recs) != 1 || string(recs[0].Key) != id {
 		t.Fatalf("records after recovery = %d (first key %q), want one keyed %s", len(recs), firstKey(recs), id)
 	}
