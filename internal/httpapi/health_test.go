@@ -45,7 +45,7 @@ func TestHealth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			h := NewHandler(newFakeService(), tt.ready, newTestLogger(&logs))
+			h := NewHandler(newFakeService(), testStreams(), tt.ready, newTestLogger(&logs))
 			rec := serve(h, newRequest(tt.method, tt.path, nil))
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
@@ -63,7 +63,7 @@ func TestHealth(t *testing.T) {
 func TestReadyzLogsTheFailure(t *testing.T) {
 	var logs bytes.Buffer
 	down := pingFunc(func(context.Context) error { return errors.New("connection refused") })
-	serve(NewHandler(newFakeService(), down, newTestLogger(&logs)), newRequest(http.MethodGet, "/readyz", nil))
+	serve(NewHandler(newFakeService(), testStreams(), down, newTestLogger(&logs)), newRequest(http.MethodGet, "/readyz", nil))
 
 	lines := logLines(t, &logs)
 	if len(lines) != 2 {
@@ -85,7 +85,7 @@ func TestReadyzPingHasDeadline(t *testing.T) {
 		return nil
 	})
 	var logs bytes.Buffer
-	serve(NewHandler(newFakeService(), ready, newTestLogger(&logs)), newRequest(http.MethodGet, "/readyz", nil))
+	serve(NewHandler(newFakeService(), testStreams(), ready, newTestLogger(&logs)), newRequest(http.MethodGet, "/readyz", nil))
 	if !deadlineSet {
 		t.Error("ping context has no deadline; a hung database would hang the probe")
 	}

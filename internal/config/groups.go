@@ -45,7 +45,8 @@ type HTTP struct {
 	ReadTimeout       time.Duration // HTTP_READ_TIMEOUT, the whole request incl. body
 	IdleTimeout       time.Duration // HTTP_IDLE_TIMEOUT, between keep-alive requests
 	// WriteTimeout is HTTP_WRITE_TIMEOUT: the per-request write deadline of
-	// non-streaming handlers. The server itself has no WriteTimeout (SSE).
+	// non-streaming handlers, and the per-event one of SSE streams. The server
+	// itself has no WriteTimeout (SSE).
 	WriteTimeout time.Duration
 }
 

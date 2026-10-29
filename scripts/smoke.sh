@@ -61,7 +61,7 @@ go run ./cmd/migrate up
 echo "== build and start the api on $addr (debug $debug_addr)"
 go build -o "$work/api" ./cmd/api
 HTTP_ADDR=$addr DEBUG_ADDR=$debug_addr SUBMIT_RATE_PER_MIN=5 SUBMIT_BURST=3 MAX_BODY_BYTES=$max_body \
-	"$work/api" >"$work/api.log" 2>&1 &
+	SSE_HEARTBEAT=1s "$work/api" >"$work/api.log" 2>&1 &
 api_pid=$!
 for _ in $(seq 100); do
 	curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && break
@@ -99,6 +99,26 @@ unknown=$(cat "$work/body")
 	fail "404 bodies differ: '$no_token' / '$wrong_token' / '$unknown'"
 pass "identical 404 bodies ($no_token)"
 
+expect "POST /tickets/{id}/stream-token" 201 \
+	"$(request POST "/tickets/$id/stream-token" -H "Authorization: Bearer $token")"
+stream_token=$(jq -r .stream_token "$work/body")
+[[ -n $stream_token && $stream_token != null && $(jq -r .expires_in "$work/body") == 60 ]] ||
+	fail "stream-token body: $(cat "$work/body")"
+expect "POST /tickets/{id}/stream-token without token" 404 "$(request POST "/tickets/$id/stream-token")"
+
+# No worker runs, so the stream stays pending: it sends the state, then a
+# heartbeat a second; curl exits 28 when --max-time cuts it.
+curl -s -N --max-time 2.5 -D "$work/sse_headers" -o "$work/sse" \
+	"$base/tickets/$id/events?token=$stream_token" || [[ $? == 28 ]] || fail "SSE request failed"
+sse_status=$(head -n1 "$work/sse_headers" | cut -d' ' -f2)
+expect "GET /tickets/{id}/events" 200 "$sse_status"
+grep -qi '^Content-Type: text/event-stream' "$work/sse_headers" || fail "SSE Content-Type: $(cat "$work/sse_headers")"
+grep -q '^data: .*"status":"pending"' "$work/sse" || fail "no pending status event: $(cat "$work/sse")"
+grep -q '^: heartbeat$' "$work/sse" || fail "no heartbeat: $(cat "$work/sse")"
+pass "SSE stream sends the pending state and heartbeats"
+expect "GET /tickets/{id}/events with a used token" 404 \
+	"$(request GET "/tickets/$id/events?token=$stream_token")"
+
 head -c $((max_body + 1)) /dev/zero | tr '\0' x >"$work/oversized"
 expect "POST /tickets oversized body" 413 \
 	"$(request POST /tickets -H 'Content-Type: application/json' --data-binary "@$work/oversized")"
@@ -130,7 +150,7 @@ for _ in $(seq 50); do
 done
 expect "outbox row published by the relay" t "$published"
 
-for secret in "$token" "$subject" "$ticket_body"; do
+for secret in "$token" "$stream_token" "$subject" "$ticket_body"; do
 	! grep -qF "$secret" "$work/api.log" || fail "the api log contains a token or ticket text"
 done
 pass "api log free of tokens and ticket text"

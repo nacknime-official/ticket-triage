@@ -82,7 +82,7 @@ func newTestLogger(w *bytes.Buffer) *slog.Logger {
 func newTestHandler(t *testing.T, svc TicketService) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var logs bytes.Buffer
-	return NewHandler(svc, alwaysReady, newTestLogger(&logs)), &logs
+	return NewHandler(svc, testStreams(), alwaysReady, newTestLogger(&logs)), &logs
 }
 
 func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {

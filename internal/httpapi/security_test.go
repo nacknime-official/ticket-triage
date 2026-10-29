@@ -168,14 +168,24 @@ func TestForRoute(t *testing.T) {
 		{"POST /tickets", http.MethodPost, "/tickets/" + testID.String(), false},
 		{"POST /tickets/{id}/stream-token", http.MethodPost, "/tickets/" + testID.String() + "/stream-token", true},
 		{"POST /tickets/{id}/stream-token", http.MethodPost, "/tickets/" + testID.String(), false},
+		{"GET /tickets/{id}/events", http.MethodGet, "/tickets/" + testID.String() + "/events?token=x", true},
+		{"GET /tickets/{id}/events", http.MethodHead, "/tickets/" + testID.String() + "/events", true},
+		{"GET /tickets/{id}/events", http.MethodGet, "/tickets/" + testID.String(), false},
+		{"GET /tickets/{id}/events", http.MethodPost, "/tickets/" + testID.String() + "/events", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern+" "+tt.method+" "+tt.target, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			ForRoute(tt.pattern, reject)(okHandler).ServeHTTP(w,
-				httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil))
-			if applied := w.Code == http.StatusTeapot; applied != tt.wantApplied {
-				t.Errorf("middleware applied = %v, want %v", applied, tt.wantApplied)
+			for name, scope := range map[string]func(string, Middleware) Middleware{
+				"ForRoute": ForRoute, "ExceptRoute": ExceptRoute,
+			} {
+				w := httptest.NewRecorder()
+				scope(tt.pattern, reject)(okHandler).ServeHTTP(w,
+					httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil))
+				// ExceptRoute applies the middleware exactly where ForRoute does not.
+				want := tt.wantApplied == (name == "ForRoute")
+				if applied := w.Code == http.StatusTeapot; applied != want {
+					t.Errorf("%s: middleware applied = %v, want %v", name, applied, want)
+				}
 			}
 		})
 	}

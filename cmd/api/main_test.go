@@ -17,6 +17,7 @@ import (
 
 	"github.com/nacknime-official/ticket-triage/internal/config"
 	"github.com/nacknime-official/ticket-triage/internal/httpapi"
+	"github.com/nacknime-official/ticket-triage/internal/notify"
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
@@ -49,9 +50,18 @@ func (p *switchPinger) Ping(context.Context) error {
 // so the write deadline middleware has a real connection to set it on.
 func newTestServer(t *testing.T, ready httpapi.Pinger, httpCfg config.HTTP, limits config.Limits) *httptest.Server {
 	t.Helper()
+	store := newMemStore()
+	streams := ticket.NewStreams(ticket.NewService(store, ticket.Config{}), store, 0)
+	return serveHandler(t, fakeService{}, streams, notify.NewHub(0), ready, httpCfg, limits)
+}
+
+func serveHandler(t *testing.T, svc httpapi.TicketService, streams httpapi.StreamService, hub *notify.Hub,
+	ready httpapi.Pinger, httpCfg config.HTTP, limits config.Limits,
+) *httptest.Server {
+	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	srv := httptest.NewUnstartedServer(nil)
-	srv.Config = httpapi.NewServer("", newHandler(fakeService{}, ready, httpCfg, limits, logger),
+	srv.Config = httpapi.NewServer("", newHandler(svc, streams, hub, ready, httpCfg, limits, logger),
 		httpapi.ServerTimeouts{ReadHeader: time.Second, Read: time.Second, Idle: time.Second}, logger)
 	srv.Start()
 	t.Cleanup(srv.Close)

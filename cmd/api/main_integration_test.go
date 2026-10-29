@@ -7,11 +7,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json/v2"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver for goose
 	"github.com/testcontainers/testcontainers-go"
@@ -20,6 +23,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/nacknime-official/ticket-triage/internal/kafka"
+	"github.com/nacknime-official/ticket-triage/internal/ticket"
 	"github.com/nacknime-official/ticket-triage/migrations"
 )
 
@@ -204,6 +208,76 @@ func TestRunServesAndShutsDown(t *testing.T) {
 		t.Errorf("record carries ticket text: %s", rec.Value)
 	}
 
+	// The SSE stream sends the pending state, then the status event the
+	// events reader takes from tickets.events.
+	mint := func() string {
+		t.Helper()
+		status, body := call(http.MethodPost, "/tickets/"+submitted.ID+"/stream-token", "", submitted.AccessToken)
+		var minted struct {
+			StreamToken string `json:"stream_token"`
+		}
+		if status != http.StatusCreated || json.Unmarshal([]byte(body), &minted) != nil {
+			t.Fatalf("stream-token: %d %s", status, body)
+		}
+		return minted.StreamToken
+	}
+	streamToken := mint()
+	s := openStream(t, base, submitted.ID, streamToken, "")
+	if s.status != http.StatusOK {
+		t.Fatalf("events: status %d", s.status)
+	}
+	if status, _ := s.nextStatus(t); status != "pending" {
+		t.Fatalf("first event status %s, want pending", status)
+	}
+	// The reader starts at the end, at a time the test cannot observe:
+	// repeat the event until the stream gets it.
+	stopProducing := make(chan struct{})
+	var producing sync.WaitGroup
+	producing.Go(func() {
+		cl, err := kafka.NewClient(cluster.ListenAddrs(), "api-test-producer")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer cl.Close()
+		value, err := ticket.StatusChanged{
+			TicketID: uuid.MustParse(submitted.ID), Status: ticket.StatusNeedsHuman, Message: "A person will contact you.",
+			At: time.Now().UTC(),
+		}.Marshal()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		rec := &kgo.Record{Topic: kafka.TopicEvents, Key: []byte(submitted.ID), Value: value}
+		for {
+			if err := cl.ProduceSync(t.Context(), rec).FirstErr(); err != nil {
+				if t.Context().Err() == nil {
+					t.Error(err)
+				}
+				return
+			}
+			select {
+			case <-stopProducing:
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	})
+	// On a failed read, the canceled test context stops the producer.
+	t.Cleanup(producing.Wait)
+	final, _ := s.nextStatus(t)
+	close(stopProducing)
+	producing.Wait()
+	if final != "needs_human" {
+		t.Fatalf("second event status %s, want needs_human", final)
+	}
+
+	// An open stream must not hold up the shutdown.
+	open := openStream(t, base, submitted.ID, mint(), "")
+	if status, _ := open.nextStatus(t); status != "pending" {
+		t.Fatalf("open stream status %s, want pending", status)
+	}
+
 	cancel()
 	select {
 	case err := <-done:
@@ -214,10 +288,13 @@ func TestRunServesAndShutsDown(t *testing.T) {
 		t.Fatalf("run did not return after cancel:\n%s", &logs)
 	}
 	stopped.Wait()
+	if e, err := open.next(); !errors.Is(err, io.EOF) {
+		t.Errorf("open stream after shutdown: %q, %v, want EOF", e, err)
+	}
 	if out := logs.String(); !strings.Contains(out, `"msg":"shutdown complete"`) {
 		t.Errorf("no shutdown complete line:\n%s", out)
 	}
-	for _, secret := range []string{submitted.AccessToken, "Charged twice", ":triage@"} {
+	for _, secret := range []string{submitted.AccessToken, streamToken, "Charged twice", ":triage@"} {
 		if strings.Contains(logs.String(), secret) {
 			t.Errorf("logs leak %q:\n%s", secret, &logs)
 		}

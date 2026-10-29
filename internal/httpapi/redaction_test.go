@@ -76,7 +76,7 @@ func TestRedactionThroughMiddlewareChain(t *testing.T) {
 
 	limiter := NewRateLimiter(RateLimit{PerMinute: 1, Burst: 1})
 	clientIP := NewClientIP([]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")})
-	h := NewHandler(&lockedService{svc: newFakeService()}, alwaysReady, logger,
+	h := NewHandler(&lockedService{svc: newFakeService()}, testStreams(), alwaysReady, logger,
 		clientIP.Middleware,
 		carelessLog(logger),
 		SecurityHeaders,
