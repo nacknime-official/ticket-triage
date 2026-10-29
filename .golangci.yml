@@ -36,6 +36,7 @@ linters:
             - "**/internal/ticket/**"
             - "**/internal/classifier/*.go"
             - "**/internal/triage/**"
+            - "**/internal/shadow/**"
           deny:
             - pkg: net/http
               desc: domain packages are transport-agnostic

@@ -639,6 +639,12 @@ func (r *recorder) Process(ctx context.Context, id string) (triage.Outcome, erro
 	return out, err
 }
 
+// GiveUp forwards to the wrapped processor; the scenarios here never exhaust
+// the retries, so it is not recorded.
+func (r *recorder) GiveUp(ctx context.Context, id string) (triage.Outcome, error) {
+	return r.next.GiveUp(ctx, id)
+}
+
 // wait returns the outcomes of the ticket once there are n, for at most
 // classifyWithin. A Process error fails the test.
 func (r *recorder) wait(t *testing.T, id string, n int) []triage.Outcome {
