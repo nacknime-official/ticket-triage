@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"reflect"
 	"slices"
 	"sync"
@@ -170,8 +171,13 @@ func TestReplayReadsHistoryInItsOwnGroup(t *testing.T) {
 	if got, want := proc.seen(), slices.Sorted(slices.Values(ids)); !reflect.DeepEqual(got, want) {
 		t.Errorf("replayed %v, want %v", got, want)
 	}
-	if got, want := groupOffsets(t, adm, group), endOffsets(t, adm, kafka.TopicSubmitted); !reflect.DeepEqual(got, want) {
-		t.Errorf("replay group offsets = %v, want the end offsets %v", got, want)
+	// The keys are random, so a partition can get no record at all; it has no
+	// record to commit and keeps no offset, and a resumed run starts it from
+	// the reset offset again.
+	wantOffsets := endOffsets(t, adm, kafka.TopicSubmitted)
+	maps.DeleteFunc(wantOffsets, func(_ int32, end int64) bool { return end == 0 })
+	if got := groupOffsets(t, adm, group); !reflect.DeepEqual(got, wantOffsets) {
+		t.Errorf("replay group offsets = %v, want the end offsets of the non-empty partitions %v", got, wantOffsets)
 	}
 	if got := groupOffsets(t, adm, testGroup); !reflect.DeepEqual(got, mainBefore) {
 		t.Errorf("workers' group offsets = %v, want them untouched: %v", got, mainBefore)
