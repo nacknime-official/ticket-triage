@@ -244,7 +244,8 @@ func TestRenderGolden(t *testing.T) {
 		failed("uk-3", "uk", fmt.Errorf("%w: jev: status 503", classifier.ErrTransient)),
 	}
 	meta := reportMeta{
-		Kind: config.ClassifierJev, Provider: "openrouter", Model: "typesafe/jev-1.14",
+		Kind: config.ClassifierJev, Provider: "openrouter", Model: "typesafe/jev-1.14", Date: "2026-10-28",
+		LabelsUnreviewed: true,
 		Files: []dataFile{
 			{Name: "a.jsonl", Rows: 3, SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 			{Name: "b.jsonl", Rows: 3, SHA256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"},

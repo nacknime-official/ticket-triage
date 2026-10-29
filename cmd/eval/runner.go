@@ -43,11 +43,20 @@ type runner struct {
 	// backoff is the wait before the first retry; it doubles each retry. A
 	// longer Retry-After on the error wins.
 	backoff time.Duration
+	// maxCostUSD stops the run once the calls made by it cost more; 0 means
+	// no cap. Calls already in flight may overshoot it.
+	maxCostUSD float64
+
+	mu    sync.Mutex
+	spent float64
 }
 
+// errCostCap stops a run whose calls cost more than runner.maxCostUSD.
+var errCostCap = errors.New("cost cap reached")
+
 // run classifies every row and returns the outcomes in row order. An
-// ErrAuth, a cache write failure or a done ctx stops the run with an error;
-// any other classifier error is recorded on the row's outcome.
+// ErrAuth, a cache write failure, the cost cap or a done ctx stops the run
+// with an error; any other classifier error is recorded on the row's outcome.
 func (r *runner) run(ctx context.Context, rows []evalset.Row) ([]outcome, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -118,6 +127,9 @@ func (r *runner) classify(ctx context.Context, row evalset.Row) (outcome, error)
 	if o.Err == nil {
 		o.Err = o.Result.Validate(r.tax)
 	}
+	if err := r.spend(o.Result.Call.CostUSD); err != nil {
+		return o, err
+	}
 
 	switch {
 	case errors.Is(o.Err, classifier.ErrAuth):
@@ -130,6 +142,18 @@ func (r *runner) classify(ctx context.Context, row evalset.Row) (outcome, error)
 		}
 	}
 	return o, nil
+}
+
+// spend adds the cost of a call and reports errCostCap once the total is over
+// the cap.
+func (r *runner) spend(usd float64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spent += usd
+	if r.maxCostUSD > 0 && r.spent > r.maxCostUSD {
+		return fmt.Errorf("%w: calls cost $%.6f, over -max-cost $%.6f", errCostCap, r.spent, r.maxCostUSD)
+	}
+	return nil
 }
 
 // retryAfterer is implemented by classifier errors that carry a Retry-After.

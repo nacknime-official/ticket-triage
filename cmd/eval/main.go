@@ -25,10 +25,12 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,13 +46,17 @@ import (
 
 const (
 	defaultCache   = ".cache/eval/results.jsonl"
+	defaultMaxCost = 0.05
+	// The live report and the fake pipeline check live side by side.
+	defaultLiveOut = "docs/eval.md"
+	defaultFakeOut = "docs/eval-fake.md"
 	defaultRetries = 2
 	retryBackoff   = time.Second
 )
 
 func main() {
 	ctx, stop := lifecycle.SignalContext(context.Background())
-	err := run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
+	err := run(ctx, os.Args[1:], os.Getenv, time.Now, os.Stdout, os.Stderr)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "eval:", err)
@@ -70,6 +76,7 @@ type options struct {
 	concurrency        int
 	retries            int
 	limit              int
+	maxCost            float64
 	complaintThreshold float64
 }
 
@@ -80,7 +87,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.classifier, "classifier", "", "fake or jev; overrides CLASSIFIER (default fake)")
 	fs.StringVar(&o.envFile, "env-file", "", "KEY=VALUE file for variables the environment leaves unset, e.g. the API key")
 	fs.StringVar(&o.data, "data", "testdata/eval", "directory of eval set *.jsonl files")
-	fs.StringVar(&o.out, "out", "docs/eval.md", "markdown report path")
+	fs.StringVar(&o.out, "out", "", "markdown report path (default "+defaultLiveOut+" for jev, "+defaultFakeOut+" for the fake)")
 	fs.StringVar(&o.jsonl, "jsonl", "", "optional per-ticket results JSONL path, kept outside the repository")
 	fs.StringVar(&o.cache, "cache", defaultCache, "git-ignored cache of answers per ticket and model; empty disables it; "+
 		"not used by the fake, which is free and deterministic")
@@ -89,6 +96,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 		"the adapter still applies JEV_RATE_LIMIT")
 	fs.IntVar(&o.retries, "retries", defaultRetries, "extra attempts after a transient error")
 	fs.IntVar(&o.limit, "limit", 0, "classify only the first N rows; 0 means all")
+	fs.Float64Var(&o.maxCost, "max-cost", defaultMaxCost, "stop once this run's calls cost more than this many USD; 0 means no cap")
 	fs.Float64Var(&o.complaintThreshold, "complaint-threshold", 0.5, "P(complaint) at or above which a ticket counts as a complaint")
 	if err := fs.Parse(args); err != nil {
 		return o, err
@@ -102,13 +110,16 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 		return o, fmt.Errorf("-retries %d is negative", o.retries)
 	case o.limit < 0:
 		return o, fmt.Errorf("-limit %d is negative", o.limit)
+	case !(o.maxCost >= 0) || math.IsInf(o.maxCost, 0):
+		return o, fmt.Errorf("-max-cost %v is not a number >= 0", o.maxCost)
 	case !(o.complaintThreshold >= 0 && o.complaintThreshold <= 1):
 		return o, fmt.Errorf("-complaint-threshold %v is outside [0, 1]", o.complaintThreshold)
 	}
 	return o, nil
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+func run(ctx context.Context, args []string, getenv func(string) string, now func() time.Time,
+	stdout, stderr io.Writer) error {
 	o, err := parseFlags(args, stderr)
 	if err != nil {
 		return err
@@ -135,12 +146,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if err != nil {
 		return err
 	}
+	unreviewed, err := labelsUnreviewed(o.data)
+	if err != nil {
+		return err
+	}
 	if o.limit > 0 && o.limit < len(rows) {
 		rows = rows[:o.limit]
 	}
 
 	tax := classifier.DefaultTaxonomy()
-	r := &runner{tax: tax, refresh: o.refresh, concurrency: o.concurrency, retries: o.retries, backoff: retryBackoff}
+	r := &runner{
+		tax: tax, refresh: o.refresh, concurrency: o.concurrency, retries: o.retries, backoff: retryBackoff,
+		maxCostUSD: o.maxCost,
+	}
+	out := o.out
 	switch clfCfg.Kind {
 	case config.ClassifierJev:
 		r.clf, err = jev.New(jev.Config{
@@ -158,6 +177,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return err
 		}
 		r.provider, r.model = clfCfg.Jev.Provider, clfCfg.Jev.Model
+		if out == "" {
+			out = defaultLiveOut
+		}
 		if o.cache != "" {
 			c, err := openCache(o.cache)
 			if err != nil {
@@ -171,6 +193,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		}
 	default:
 		r.clf, r.provider, r.model = new(classifier.Fake), classifier.FakeProvider, classifier.FakeModel
+		if out == "" {
+			out = defaultFakeOut
+		}
 	}
 	if r.concurrency == 0 {
 		r.concurrency = clfCfg.Jev.MaxConcurrency
@@ -187,10 +212,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		Model:              r.model,
 		Files:              files,
 		Limit:              o.limit,
+		LabelsUnreviewed:   unreviewed,
 		Thresholds:         toThresholds(thresholds),
 		ComplaintThreshold: o.complaintThreshold,
 	}
-	if err := writeFile(o.out, render(meta, outs)); err != nil {
+	// The fake report stays reproducible byte for byte, so only a live run is dated.
+	if meta.Kind != config.ClassifierFake {
+		meta.Date = now().UTC().Format(time.DateOnly)
+	}
+	if err := writeFile(out, render(meta, outs)); err != nil {
 		return err
 	}
 	if o.jsonl != "" {
@@ -214,7 +244,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		}
 	}
 	_, err = fmt.Fprintf(stdout, "wrote %s: %d rows, %d calls, %d from cache, %d failed\n",
-		o.out, len(outs), calls, cached, failed)
+		out, len(outs), calls, cached, failed)
 	return err
 }
 
@@ -262,6 +292,23 @@ func loadRows(dir string) ([]evalset.Row, []dataFile, error) {
 		rows = append(rows, fileRows...)
 	}
 	return rows, files, nil
+}
+
+// unreviewedMarker is the status note testdata/eval/README.md carries until a
+// human has reviewed the labels; the review replaces it.
+const unreviewedMarker = "labels are unreviewed drafts"
+
+// labelsUnreviewed reports whether the README.md next to the eval set still
+// carries unreviewedMarker. A missing README counts as unreviewed.
+func labelsUnreviewed(dir string) (bool, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return bytes.Contains(bytes.ToLower(b), []byte(unreviewedMarker)), nil
 }
 
 // resultLine is one line of the -jsonl output. It never holds ticket text.

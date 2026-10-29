@@ -1,13 +1,16 @@
 # Eval report
 
-Labels come from `testdata/eval/`; its README states whether a human has reviewed them. Until then the
-accuracy numbers are provisional.
+Live run of `typesafe/jev-1.14` (served as `typesafe/jev-1.14-20261014`) through `openrouter` on 2026-10-28, over the eval set in `testdata/eval/`.
+
+> **Labels are unreviewed drafts.** An agent drafted every label and no human has reviewed them yet
+> (`testdata/eval/README.md`), so every accuracy number here is provisional.
 
 ## Run
 
 | Setting | Value |
 |---|---|
 | Classifier | `jev` (provider `openrouter`, model `typesafe/jev-1.14`) |
+| Date | 2026-10-28 |
 | Served model | `typesafe/jev-1.14-20261014` |
 | Eval set | `a.jsonl` (3 rows, sha256 `0123456789ab`), `b.jsonl` (3 rows, sha256 `fedcba987654`) |
 | Rows | 6 (en 3, uk 3) |
@@ -239,11 +242,12 @@ result are shown once, with the lowest thresholds.
 From the repository root. The fake run needs no key and makes no network call:
 
 ```sh
-go run ./cmd/eval
+go run ./cmd/eval  # writes docs/eval-fake.md
 ```
 
 The live run calls Jev once per row (about 100 calls, a fraction of a cent at the README §4.4 price)
-with the key from `~/.config/ticket-triage/.env`, and overwrites this file:
+with the key from `~/.config/ticket-triage/.env`, stops if the calls cost more than `-max-cost` ($0.05),
+and writes `docs/eval.md`:
 
 ```sh
 go run ./cmd/eval -classifier jev -env-file ~/.config/ticket-triage/.env \

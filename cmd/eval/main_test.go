@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nacknime-official/ticket-triage/internal/evalset"
 )
@@ -54,7 +55,7 @@ func TestRunFake(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	args := []string{"-data", data, "-out", out, "-jsonl", results, "-cache", cachePath}
-	if err := run(t.Context(), args, envFunc(nil), &stdout, &stderr); err != nil {
+	if err := run(t.Context(), args, envFunc(nil), time.Now, &stdout, &stderr); err != nil {
 		t.Fatalf("run() error = %v, stderr %s", err, stderr.String())
 	}
 	if want := "wrote " + out + ": 3 rows, 3 calls, 0 from cache, 0 failed\n"; stdout.String() != want {
@@ -67,6 +68,7 @@ func TestRunFake(t *testing.T) {
 	}
 	for _, want := range []string{
 		"**Fake classifier: a pipeline check, not a quality number.**",
+		"**Labels are unreviewed drafts.**", "| Date | — |",
 		"| Classifier | `fake` (provider `fake`, model `fake-keywords-1`) |",
 		"`en.jsonl` (2 rows, sha256 ", "| Rows | 3 (en 2, uk 1) |",
 		"## Accuracy", "## Confusion matrices", "#### Priority uk", "## Latency", "## Cost",
@@ -113,7 +115,7 @@ func TestRunEvalSet(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "eval.md")
 	var stdout, stderr bytes.Buffer
 	args := []string{"-data", "../../testdata/eval", "-out", out}
-	if err := run(t.Context(), args, envFunc(nil), &stdout, &stderr); err != nil {
+	if err := run(t.Context(), args, envFunc(nil), time.Now, &stdout, &stderr); err != nil {
 		t.Fatalf("run() error = %v, stderr %s", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), " 0 failed") {
@@ -141,6 +143,7 @@ func TestRunErrors(t *testing.T) {
 		{"extra argument", []string{"jev"}, nil, "unexpected arguments"},
 		{"bad threshold", []string{"-complaint-threshold", "1.5"}, nil, "outside [0, 1]"},
 		{"negative limit", []string{"-limit", "-1"}, nil, "-limit -1 is negative"},
+		{"negative max cost", []string{"-max-cost", "-1"}, nil, "-max-cost -1 is not a number >= 0"},
 		{"unknown classifier", []string{"-classifier", "gpt"}, nil, "CLASSIFIER"},
 		{"jev without a key", []string{"-classifier", "jev"}, nil, "OPENROUTER_API_KEY"},
 		{"bad env", nil, map[string]string{"CATEGORY_MIN_CONFIDENCE": "2"}, "CATEGORY_MIN_CONFIDENCE"},
@@ -152,11 +155,41 @@ func TestRunErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			args := append([]string{"-out", filepath.Join(t.TempDir(), "eval.md")}, tt.args...)
 			var stdout, stderr bytes.Buffer
-			err := run(t.Context(), args, envFunc(tt.env), &stdout, &stderr)
+			err := run(t.Context(), args, envFunc(tt.env), time.Now, &stdout, &stderr)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("run() error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestLabelsUnreviewed(t *testing.T) {
+	tests := []struct {
+		name   string
+		readme *string
+		want   bool
+	}{
+		{"draft note", new("# Eval set\n\n> **Status: labels are unreviewed drafts.** An agent drafted them.\n"), true},
+		{"reviewed", new("# Eval set\n\n> Labels reviewed by A. Person on 2026-11-02.\n"), false},
+		{"no README", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.readme != nil {
+				if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(*tt.readme), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := labelsUnreviewed(dir)
+			if err != nil || got != tt.want {
+				t.Errorf("labelsUnreviewed() = %t, %v, want %t", got, err, tt.want)
+			}
+		})
+	}
+	// The committed eval set is still a draft; this flips when the review lands.
+	if got, err := labelsUnreviewed("../../testdata/eval"); err != nil || !got {
+		t.Errorf("labelsUnreviewed(testdata/eval) = %t, %v; update this test after the label review", got, err)
 	}
 }
 

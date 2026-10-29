@@ -27,7 +27,11 @@ type reportMeta struct {
 	Kind     string // config.ClassifierFake or config.ClassifierJev
 	Provider string
 	Model    string // the configured model
-	Files    []dataFile
+	// Date is the UTC date of a live run; empty for the fake.
+	Date string
+	// LabelsUnreviewed says the eval set labels are still agent drafts.
+	LabelsUnreviewed bool
+	Files            []dataFile
 	// Limit is the row limit of the run, 0 for all rows.
 	Limit              int
 	Thresholds         classifier.Thresholds
@@ -37,7 +41,7 @@ type reportMeta struct {
 // The commands that reproduce a report. liveCommand reads the key from the
 // file named in the PR, so the key never reaches the shell history.
 const (
-	fakeCommand = "go run ./cmd/eval"
+	fakeCommand = "go run ./cmd/eval  # writes " + defaultFakeOut
 	liveCommand = "go run ./cmd/eval -classifier jev -env-file ~/.config/ticket-triage/.env \\\n" +
 		"  -jsonl ~/.cache/ticket-triage/eval-results.jsonl"
 )
@@ -52,11 +56,18 @@ func render(m reportMeta, outs []outcome) []byte {
 	if m.Kind == config.ClassifierFake {
 		b.WriteString("> **Fake classifier: a pipeline check, not a quality number.** This report was produced with\n" +
 			"> the deterministic keyword fake (`internal/classifier/fake.go`), not with Jev. It shows that the eval\n" +
-			"> pipeline runs end to end; its accuracy says nothing about Jev. See [Reproduce](#reproduce) for the\n" +
-			"> live run.\n\n")
+			"> pipeline runs end to end; its accuracy says nothing about Jev. The live Jev report is\n" +
+			"> `" + defaultLiveOut + "`.\n\n")
+	} else {
+		fmt.Fprintf(&b, "Live run of `%s` (served as %s) through `%s` on %s, over the eval set in `testdata/eval/`.\n\n",
+			m.Model, code(servedModels(outs)), m.Provider, m.Date)
 	}
-	b.WriteString("Labels come from `testdata/eval/`; its README states whether a human has reviewed them. Until then the\n" +
-		"accuracy numbers are provisional.\n\n")
+	if m.LabelsUnreviewed {
+		b.WriteString("> **Labels are unreviewed drafts.** An agent drafted every label and no human has reviewed them yet\n" +
+			"> (`testdata/eval/README.md`), so every accuracy number here is provisional.\n\n")
+	} else {
+		b.WriteString("Labels come from `testdata/eval/`; its README names the reviewer.\n\n")
+	}
 
 	renderRun(&b, m, outs, langs)
 	renderAccuracy(&b, qs, langs, outs)
@@ -87,6 +98,7 @@ func renderRun(b *bytes.Buffer, m reportMeta, outs []outcome, langs []group) {
 	t := m.Thresholds
 	table(b, []string{"Setting", "Value"}, [][]string{
 		{"Classifier", fmt.Sprintf("`%s` (provider `%s`, model `%s`)", m.Kind, m.Provider, m.Model)},
+		{"Date", cmp.Or(m.Date, "—")},
 		{"Served model", code(served)},
 		{"Eval set", strings.Join(files, ", ")},
 		{"Rows", rows},
@@ -352,7 +364,8 @@ func renderReproduce(b *bytes.Buffer) {
 	b.WriteString("From the repository root. The fake run needs no key and makes no network call:\n\n")
 	fmt.Fprintf(b, "```sh\n%s\n```\n\n", fakeCommand)
 	b.WriteString("The live run calls Jev once per row (about 100 calls, a fraction of a cent at the README §4.4 price)\n" +
-		"with the key from `~/.config/ticket-triage/.env`, and overwrites this file:\n\n")
+		"with the key from `~/.config/ticket-triage/.env`, stops if the calls cost more than `-max-cost` ($0.05),\n" +
+		"and writes `" + defaultLiveOut + "`:\n\n")
 	fmt.Fprintf(b, "```sh\n%s\n```\n\n", liveCommand)
 	b.WriteString("Answers are cached per ticket and model in `.cache/eval/results.jsonl` (git-ignored), so re-rendering\n" +
 		"the report or re-running the sweep costs nothing. `-refresh` calls Jev again, for example after the adapter\n" +

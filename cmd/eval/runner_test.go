@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -143,6 +145,45 @@ type retryLater struct{ after time.Duration }
 func (e retryLater) Error() string             { return "retry later" }
 func (e retryLater) Unwrap() error             { return classifier.ErrTransient }
 func (e retryLater) RetryAfter() time.Duration { return e.after }
+
+func TestRunnerCostCap(t *testing.T) {
+	var calls atomic.Int32
+	r := newRunner(classifyFunc(func(context.Context, classifier.Input) (classifier.Result, error) {
+		calls.Add(1)
+		return validResult(0), nil // $0.00002 a call
+	}))
+	r.concurrency, r.maxCostUSD = 1, 0.00005
+
+	_, err := r.run(t.Context(), testRows(10))
+	if !errors.Is(err, errCostCap) {
+		t.Fatalf("run() error = %v, want errCostCap", err)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("calls = %d, want 3: the third call passes the cap", got)
+	}
+
+	t.Run("cached answers cost nothing", func(t *testing.T) {
+		c, err := openCache(filepath.Join(t.TempDir(), "cache.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		rows := testRows(10)
+		for _, row := range rows {
+			if err := c.put(newCacheKey("test", "model-1", row), validResult(0)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r := newRunner(classifyFunc(func(context.Context, classifier.Input) (classifier.Result, error) {
+			t.Error("unexpected call")
+			return classifier.Result{}, nil
+		}))
+		r.cache, r.maxCostUSD = c, 0.00005
+		if _, err := r.run(t.Context(), rows); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
 
 func TestRunnerRejectsInvalidAnswer(t *testing.T) {
 	r := newRunner(classifyFunc(func(context.Context, classifier.Input) (classifier.Result, error) {
@@ -304,10 +345,18 @@ func TestRunnerCache(t *testing.T) {
 // TestRunnerWithJevRateLimit runs the real adapter over an in-memory transport:
 // the runner's concurrency does not get past the adapter's rate limit.
 func TestRunnerWithJevRateLimit(t *testing.T) {
-	body, err := os.ReadFile("../../internal/classifier/jev/testdata/response_openrouter.json")
+	// A success recorded live by cmd/jevprobe.
+	recorded, err := os.ReadFile("../../internal/classifier/jev/testdata/live/ok.json")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var rec struct {
+		Body jsontext.Value `json:"body"`
+	}
+	if err := json.Unmarshal(recorded, &rec); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(rec.Body)
 	synctest.Test(t, func(t *testing.T) {
 		var (
 			mu    sync.Mutex
