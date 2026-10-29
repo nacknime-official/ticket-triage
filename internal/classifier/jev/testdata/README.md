@@ -2,7 +2,7 @@
 
 `live/` holds HTTP exchanges recorded by `cmd/jevprobe` (T12) against OpenRouter on 2026-10-28, with the
 eval rows `gen-en-001` and `gen-uk-001`; `ok-uk.json` was re-recorded on 2026-10-29 after the `is_complaint`
-question gained its criteria, so the other files carry the older request. Each file has the request body sent, the response status, the kept
+and `urgency` questions gained the labeling guidelines, so the other files carry an older request. Each file has the request body sent, the response status, the kept
 response headers and the response body. Request headers are never recorded, and the account id in
 OpenRouter error bodies is replaced by `redacted`. The adapter tests replay them with `httptest`; re-record
 with `go run ./cmd/jevprobe` (see its doc comment), which spends a few live calls.
