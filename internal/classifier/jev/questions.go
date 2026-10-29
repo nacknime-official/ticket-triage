@@ -3,6 +3,7 @@ package jev
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"strings"
 
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 )
@@ -21,6 +22,40 @@ const (
 	typeChoice = "choice"
 	typeScore  = "score"
 )
+
+// complaintGuidelines is the complaint definition Jev answers is_complaint
+// against: the "Complaint (`true`)" and "Not a complaint (`false`)" lists of
+// the "Complaint" labeling guidelines in testdata/eval/README.md, sentence
+// for sentence. Without it Jev counts any report of a broken product or a
+// lost payment as a complaint, while the labels count only dissatisfaction.
+// TestComplaintGuidelinesMatchREADME fails when the lists here and there
+// differ, so change both together.
+var complaintGuidelines = guidelines{
+	True: []string{
+		"The customer expresses dissatisfaction: anger, blame, sarcasm, \"again\", a threat to leave or to " +
+			"escalate, a demand for compensation, profanity, or an explicit claim or complaint.",
+		"Profanity or insults aimed at the product or company are a complaint.",
+		"Asking how to file a complaint or claim is a complaint.",
+		"\"You charged me AGAIN, refund it now\" is a complaint.",
+	},
+	False: []string{
+		"Questions, requests and neutral, factual problem reports are not complaints, even when something is " +
+			"broken or money was lost.",
+		"A polite report of a double charge asking for a refund is not a complaint.",
+		"A formal request with a conditional legal step but no dissatisfaction (\"otherwise I will have to " +
+			"contact the ombudsman\") is not a complaint.",
+	},
+}
+
+// guidelines are the sentences that make a noul answer true or false.
+type guidelines struct {
+	True, False []string
+}
+
+// criteria returns g as noul criteria, each side one paragraph.
+func (g guidelines) criteria() noulCriteria {
+	return noulCriteria{True: strings.Join(g.True, " "), False: strings.Join(g.False, " ")}
+}
 
 // urgencyLevels are the score criteria, ordered from level 0 up to
 // classifier.MaxUrgency, so the weighted score is the urgency level.
@@ -52,8 +87,17 @@ type questions struct {
 }
 
 type noulQuestion struct {
-	Type         string `json:"type"`
-	Instructions string `json:"instructions"`
+	Type         string       `json:"type"`
+	Instructions string       `json:"instructions"`
+	Criteria     noulCriteria `json:"criteria"`
+}
+
+// noulCriteria describes when the answer is yes and when no. Jev requires
+// both keys; its validation also allows a record or an array per key,
+// unused here.
+type noulCriteria struct {
+	True  string `json:"true"`
+	False string `json:"false"`
 }
 
 type choiceQuestion struct {
@@ -94,9 +138,9 @@ var _ json.MarshalerTo = choiceCriteria(nil)
 func buildQuestions(tax classifier.Taxonomy) questions {
 	return questions{
 		IsComplaint: noulQuestion{
-			Type: typeNoul,
-			Instructions: "Does the customer in `subject` and `body` express dissatisfaction or complain " +
-				"about the product, service, or a charge?",
+			Type:         typeNoul,
+			Instructions: "Does the customer in `subject` and `body` express dissatisfaction?",
+			Criteria:     complaintGuidelines.criteria(),
 		},
 		Category: choiceQuestion{
 			Type:         typeChoice,

@@ -397,6 +397,10 @@ $0.0005); the recordings are in `internal/classifier/jev/testdata/live/`.
 - Request `{model, state, questions}`; response `{model, answers: {<id>: ...}, usage: {input_tokens,
   output_tokens, cost}, id, provider}` (T12). Question ids are not shown to the model; meaning comes from
   `instructions` and `criteria`.
+- `noul` takes optional `criteria` `{"true": ..., "false": ...}` with both keys required, each a string (the
+  validation message also allows a record or an array), checked live on 2026-10-29. Criteria sent as a string,
+  as an array, or without the `true` and `false` keys are rejected with 400. `is_complaint` sends the
+  "Complaint" labeling guidelines of `testdata/eval/README.md` there; `docs/eval.md` shows the effect.
 - Answer shapes (T12): `noul` → `{type, noul: P(yes)}` without a confidence; `choice` → `{type, choice,
   probabilities: {option: p}, confidence}`; `score` → `{type, score, legend: {"0": level, ...},
   probabilities: {"0": p, ...}, confidence}`. A `score` with a single level is accepted (the docs say 2–10).

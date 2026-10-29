@@ -1,7 +1,7 @@
 {
   "case": "ok",
   "ticket": "gen-uk-001",
-  "recorded_at": "2026-10-28T20:25:14Z",
+  "recorded_at": "2026-10-29T15:45:23Z",
   "method": "POST",
   "url": "https://openrouter.ai/api/v1/systemone",
   "request": {
@@ -13,7 +13,11 @@
     "questions": {
       "is_complaint": {
         "type": "noul",
-        "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?"
+        "instructions": "Does the customer in `subject` and `body` express dissatisfaction?",
+        "criteria": {
+          "true": "The customer expresses dissatisfaction: anger, blame, sarcasm, \"again\", a threat to leave or to escalate, a demand for compensation, profanity, or an explicit claim or complaint. Profanity or insults aimed at the product or company are a complaint. Asking how to file a complaint or claim is a complaint. \"You charged me AGAIN, refund it now\" is a complaint.",
+          "false": "Questions, requests and neutral, factual problem reports are not complaints, even when something is broken or money was lost. A polite report of a double charge asking for a refund is not a complaint. A formal request with a conditional legal step but no dissatisfaction (\"otherwise I will have to contact the ombudsman\") is not a complaint."
+        }
       },
       "category": {
         "type": "choice",
@@ -39,10 +43,10 @@
     }
   },
   "status": 200,
-  "latency_ms": 334,
+  "latency_ms": 431,
   "header": {
     "content-type": "application/json",
-    "x-generation-id": "gen-dec-1793219114-zk6PbPaYEyUQxCcIsrwA",
+    "x-generation-id": "gen-dec-1793288723-WA85pxysTK4dWdsXdE87",
     "x-provider-name": "TypeSafe"
   },
   "body": {
@@ -50,7 +54,7 @@
     "answers": {
       "is_complaint": {
         "type": "noul",
-        "noul": 0.97
+        "noul": 0.12
       },
       "category": {
         "type": "choice",
@@ -66,7 +70,7 @@
       },
       "urgency": {
         "type": "score",
-        "score": 1.96,
+        "score": 1.95,
         "legend": {
           "0": "No time pressure: general question or feedback",
           "1": "Normal: an issue the customer wants solved but can work around",
@@ -75,19 +79,19 @@
         },
         "probabilities": {
           "0": 0,
-          "1": 0.04,
-          "2": 0.96,
+          "1": 0.05,
+          "2": 0.95,
           "3": 0
         },
-        "confidence": 0.96
+        "confidence": 0.95
       }
     },
     "usage": {
-      "input_tokens": 656,
+      "input_tokens": 807,
       "output_tokens": 87,
-      "cost": 0.000027552
+      "cost": 0.000033894
     },
-    "id": "gen-dec-1793219114-zk6PbPaYEyUQxCcIsrwA",
+    "id": "gen-dec-1793288723-WA85pxysTK4dWdsXdE87",
     "provider": "TypeSafe"
   }
 }

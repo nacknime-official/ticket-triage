@@ -7,7 +7,11 @@
   "questions": {
     "is_complaint": {
       "type": "noul",
-      "instructions": "Does the customer in `subject` and `body` express dissatisfaction or complain about the product, service, or a charge?"
+      "instructions": "Does the customer in `subject` and `body` express dissatisfaction?",
+      "criteria": {
+        "true": "The customer expresses dissatisfaction: anger, blame, sarcasm, \"again\", a threat to leave or to escalate, a demand for compensation, profanity, or an explicit claim or complaint. Profanity or insults aimed at the product or company are a complaint. Asking how to file a complaint or claim is a complaint. \"You charged me AGAIN, refund it now\" is a complaint.",
+        "false": "Questions, requests and neutral, factual problem reports are not complaints, even when something is broken or money was lost. A polite report of a double charge asking for a refund is not a complaint. A formal request with a conditional legal step but no dissatisfaction (\"otherwise I will have to contact the ombudsman\") is not a complaint."
+      }
     },
     "category": {
       "type": "choice",
