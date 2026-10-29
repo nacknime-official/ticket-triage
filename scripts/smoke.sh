@@ -73,6 +73,16 @@ echo "== checks"
 expect "GET /healthz" 200 "$(request GET /healthz)"
 expect "GET /readyz" 200 "$(request GET /readyz)"
 
+expect "GET / (built-in page)" 200 "$(request GET /)"
+expect "GET / Content-Type" "text/html; charset=utf-8" "$(header Content-Type)"
+expect "GET / Referrer-Policy" no-referrer "$(header Referrer-Policy)"
+[[ $(header Content-Security-Policy) == *"default-src 'self'"* ]] || fail "GET / CSP: $(header Content-Security-Policy)"
+grep -q '<form id="ticket-form"' "$work/body" || fail "GET / does not serve the page: $(head -c 300 "$work/body")"
+pass "GET / serves the submit form under the CSP"
+for asset in /assets/app.js /assets/app.css; do
+	expect "GET $asset" 200 "$(request GET "$asset")"
+done
+
 subject="Smoke test: card charged twice"
 ticket_body="Order 4411, please refund the second payment."
 code=$(request POST /tickets -H 'Content-Type: application/json' \
