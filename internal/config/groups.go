@@ -102,8 +102,9 @@ func (c Postgres) LogValue() slog.Value {
 
 // Kafka configures the franz-go clients.
 type Kafka struct {
-	Brokers       []string // KAFKA_BROKERS
-	ConsumerGroup string   // KAFKA_CONSUMER_GROUP
+	Brokers            []string // KAFKA_BROKERS
+	ConsumerGroup      string   // KAFKA_CONSUMER_GROUP
+	RetryConsumerGroup string   // KAFKA_RETRY_CONSUMER_GROUP, of the tickets.submitted.retry consumer
 }
 
 // Kafka reads the Kafka group.
@@ -118,8 +119,9 @@ func (l *Loader) Kafka() Kafka {
 		}
 	}
 	return Kafka{
-		Brokers:       brokers,
-		ConsumerGroup: l.str("KAFKA_CONSUMER_GROUP", "triage-workers"),
+		Brokers:            brokers,
+		ConsumerGroup:      l.str("KAFKA_CONSUMER_GROUP", "triage-workers"),
+		RetryConsumerGroup: l.str("KAFKA_RETRY_CONSUMER_GROUP", "triage-workers-retry"),
 	}
 }
 
@@ -128,6 +130,7 @@ func (c Kafka) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Any("brokers", c.Brokers),
 		slog.String("consumer_group", c.ConsumerGroup),
+		slog.String("retry_consumer_group", c.RetryConsumerGroup),
 	)
 }
 
@@ -271,14 +274,22 @@ type Worker struct {
 	Concurrency     int           // WORKER_CONCURRENCY, tickets processed at once
 	BatchSize       int           // WORKER_BATCH_SIZE, max records per poll and commit
 	ShutdownTimeout time.Duration // WORKER_SHUTDOWN_TIMEOUT, to drain in-flight tickets and leave the group
+	// RetryMaxAttempts is the number of trips through tickets.submitted.retry
+	// before a ticket goes to needs_human and the DLQ (README §4.2).
+	RetryMaxAttempts int           // WORKER_RETRY_MAX_ATTEMPTS
+	RetryBackoffBase time.Duration // WORKER_RETRY_BACKOFF_BASE, before retry 1; doubled per retry
+	RetryBackoffMax  time.Duration // WORKER_RETRY_BACKOFF_MAX
 }
 
 // Worker reads the Worker group.
 func (l *Loader) Worker() Worker {
 	return Worker{
-		Concurrency:     l.int("WORKER_CONCURRENCY", "8", 1),
-		BatchSize:       l.int("WORKER_BATCH_SIZE", "64", 1),
-		ShutdownTimeout: l.duration("WORKER_SHUTDOWN_TIMEOUT", "30s"),
+		Concurrency:      l.int("WORKER_CONCURRENCY", "8", 1),
+		BatchSize:        l.int("WORKER_BATCH_SIZE", "64", 1),
+		ShutdownTimeout:  l.duration("WORKER_SHUTDOWN_TIMEOUT", "30s"),
+		RetryMaxAttempts: l.int("WORKER_RETRY_MAX_ATTEMPTS", "3", 1),
+		RetryBackoffBase: l.duration("WORKER_RETRY_BACKOFF_BASE", "30s"),
+		RetryBackoffMax:  l.duration("WORKER_RETRY_BACKOFF_MAX", "10m"),
 	}
 }
 
@@ -288,6 +299,9 @@ func (c Worker) LogValue() slog.Value {
 		slog.Int("concurrency", c.Concurrency),
 		slog.Int("batch_size", c.BatchSize),
 		slog.Duration("shutdown_timeout", c.ShutdownTimeout),
+		slog.Int("retry_max_attempts", c.RetryMaxAttempts),
+		slog.Duration("retry_backoff_base", c.RetryBackoffBase),
+		slog.Duration("retry_backoff_max", c.RetryBackoffMax),
 	)
 }
 

@@ -20,6 +20,9 @@ import (
 // it. A non-nil error means the record must not be committed.
 type Processor interface {
 	Process(ctx context.Context, ticketID string) (triage.Outcome, error)
+	// GiveUp moves a still-pending ticket to needs_human before its record
+	// goes to the DLQ without a final outcome.
+	GiveUp(ctx context.Context, ticketID string) (triage.Outcome, error)
 }
 
 // ErrDrainTimeout is the cause of the cancellation of in-flight work when
@@ -38,6 +41,8 @@ type ConsumerConfig struct {
 	Concurrency int
 	// BatchSize bounds the records of one poll, and so of one commit.
 	BatchSize int
+	// Retry configures the retry topic and when a record goes to the DLQ.
+	Retry RetryPolicy
 }
 
 func (c ConsumerConfig) withDefaults() ConsumerConfig {
@@ -47,6 +52,7 @@ func (c ConsumerConfig) withDefaults() ConsumerConfig {
 	if c.BatchSize <= 0 {
 		c.BatchSize = DefaultBatchSize
 	}
+	c.Retry = c.Retry.withDefaults()
 	return c
 }
 
@@ -55,9 +61,20 @@ func (c ConsumerConfig) withDefaults() ConsumerConfig {
 // hand, and holds rebalances between a poll and its commit, so a batch is
 // committed by the member that processed it.
 func ConsumerOpts(group string) []kgo.Opt {
+	return consumerOpts(group, TopicSubmitted)
+}
+
+// RetryConsumerOpts returns the client options of a retry consumer in group:
+// ConsumerOpts for tickets.submitted.retry. Give it its own group, so
+// waiting retries never hold up tickets.submitted.
+func RetryConsumerOpts(group string) []kgo.Opt {
+	return consumerOpts(group, TopicSubmittedRetry)
+}
+
+func consumerOpts(group, topic string) []kgo.Opt {
 	return []kgo.Opt{
 		kgo.ConsumerGroup(group),
-		kgo.ConsumeTopics(TopicSubmitted),
+		kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
@@ -67,11 +84,23 @@ func ConsumerOpts(group string) []kgo.Opt {
 // Consumer is the classifier consumer loop of README §4.2 and §5: poll a
 // batch, process its records in a bounded pool, and commit the batch only
 // once every record is processed. Call Run once, and Stop to drain it.
+//
+// The same loop serves tickets.submitted and tickets.submitted.retry. A
+// Retryable ticket is produced to the retry topic, due after a backoff; once
+// its attempts run out, the ticket is failed open to needs_human and the
+// record goes to the DLQ, as does a Poison record at once. Both produces
+// finish before the batch is committed, so a crash in between duplicates a
+// record but never loses one. A record that is not due yet pauses its
+// partition until it is, and is fetched again from there.
 type Consumer struct {
 	cl   *kgo.Client
 	proc Processor
 	cfg  ConsumerConfig
 	log  *slog.Logger
+
+	// paused holds the partitions paused for a record that is not due yet,
+	// with the time it is due. Only Run uses it.
+	paused map[topicPartition]time.Time
 
 	stopOnce, abortOnce sync.Once
 	stop                chan struct{} // closed by Stop: stop polling
@@ -92,9 +121,10 @@ func NewConsumer(cl *kgo.Client, proc Processor, cfg ConsumerConfig, log *slog.L
 	}
 	return &Consumer{
 		cl: cl, proc: proc, cfg: cfg.withDefaults(), log: log,
-		stop:  make(chan struct{}),
-		abort: make(chan struct{}),
-		done:  make(chan struct{}),
+		paused: make(map[topicPartition]time.Time),
+		stop:   make(chan struct{}),
+		abort:  make(chan struct{}),
+		done:   make(chan struct{}),
 	}, nil
 }
 
@@ -132,13 +162,17 @@ func (c *Consumer) Run(ctx context.Context) error {
 	})
 
 	for pollCtx.Err() == nil {
-		fetches := c.cl.PollRecords(pollCtx, c.cfg.BatchSize)
+		c.resumeDue(time.Now())
+		fetches := c.poll(pollCtx)
 		if pollCtx.Err() != nil || fetches.IsClientClosed() {
 			// Records polled with the stop are left for redelivery.
 			c.cl.AllowRebalance()
 			return nil
 		}
 		fetches.EachError(func(topic string, partition int32, err error) {
+			if topic == "" && errors.Is(err, context.DeadlineExceeded) {
+				return // the wait for a paused partition ended
+			}
 			c.log.WarnContext(ctx, "kafka fetch error",
 				slog.String("topic", topic), slog.Int("partition", int(partition)), errorAttr(err))
 		})
@@ -166,45 +200,130 @@ func (c *Consumer) Stop(ctx context.Context) error {
 	}
 }
 
-// batch processes recs in the bounded pool and commits them once all are
-// processed. A failed commit is only logged: every record is processed, the
-// next commit of the same partitions covers it, and a restart or rebalance
-// before that redelivers the batch, which the idempotent Processor absorbs.
+// poll polls a batch, waiting no longer than until the first paused
+// partition is due.
+func (c *Consumer) poll(ctx context.Context) kgo.Fetches {
+	var next time.Time
+	for _, due := range c.paused {
+		if next.IsZero() || due.Before(next) {
+			next = due
+		}
+	}
+	if !next.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, next)
+		defer cancel()
+	}
+	return c.cl.PollRecords(ctx, c.cfg.BatchSize)
+}
+
+// resumeDue resumes the paused partitions that are due at now.
+func (c *Consumer) resumeDue(now time.Time) {
+	resume := make(map[string][]int32)
+	for tp, due := range c.paused {
+		if !due.After(now) {
+			resume[tp.topic] = append(resume[tp.topic], tp.partition)
+			delete(c.paused, tp)
+		}
+	}
+	if len(resume) > 0 {
+		c.cl.ResumeFetchPartitions(resume)
+	}
+}
+
+// batch processes the due records of recs in the bounded pool and commits
+// them once all are processed. A failed commit is only logged: every record
+// is processed, the next commit of the same partitions covers it, and a
+// restart or rebalance before that redelivers the batch, which the
+// idempotent Processor absorbs.
+//
+// In a partition whose next record is not due yet, batch processes the
+// records before it, pauses the partition, and rewinds it to that record.
 func (c *Consumer) batch(ctx context.Context, recs []*kgo.Record) error {
-	if len(recs) == 0 {
-		return nil
+	due, rewind := c.deferNotDue(recs, time.Now())
+	if len(due) > 0 {
+		if err := runPool(ctx, c.cfg.Concurrency, due, c.handle); err != nil {
+			return fmt.Errorf("kafka: batch of %d records not committed: %w", len(due), err)
+		}
+		start := time.Now()
+		if err := c.cl.CommitRecords(ctx, due...); err != nil {
+			c.log.ErrorContext(ctx, "kafka commit failed",
+				slog.Int("records", len(due)), errorAttr(err))
+		} else {
+			c.log.DebugContext(ctx, "kafka batch committed",
+				slog.Int("records", len(due)), slog.Int64("commit_ms", time.Since(start).Milliseconds()))
+		}
 	}
-	if err := runPool(ctx, c.cfg.Concurrency, recs, c.handle); err != nil {
-		return fmt.Errorf("kafka: batch of %d records not committed: %w", len(recs), err)
+	// After the commit, as SetOffsets must not run concurrently with one.
+	// Rebalances are still blocked, so the partitions are still ours.
+	if len(rewind) > 0 {
+		c.cl.SetOffsets(rewind)
 	}
-	start := time.Now()
-	if err := c.cl.CommitRecords(ctx, recs...); err != nil {
-		c.log.ErrorContext(ctx, "kafka commit failed",
-			slog.Int("records", len(recs)), errorAttr(err))
-		return nil
-	}
-	c.log.DebugContext(ctx, "kafka batch committed",
-		slog.Int("records", len(recs)), slog.Int64("commit_ms", time.Since(start).Milliseconds()))
 	return nil
 }
 
+// deferNotDue splits recs at the first record of each partition that is due
+// after now. It pauses those partitions, notes when each is due, and returns
+// the records before the split and the offsets to rewind the partitions to.
+// A record whose headers do not parse is due, so handle sends it to the DLQ.
+func (c *Consumer) deferNotDue(recs []*kgo.Record, now time.Time) ([]*kgo.Record, map[string]map[int32]kgo.EpochOffset) {
+	var (
+		due    = make([]*kgo.Record, 0, len(recs))
+		rewind map[string]map[int32]kgo.EpochOffset
+		pause  map[string][]int32
+	)
+	for _, r := range recs {
+		tp := topicPartition{r.Topic, r.Partition}
+		if _, ok := rewind[r.Topic][r.Partition]; ok {
+			continue // behind a record that is not due; fetched again on resume
+		}
+		m, err := readMeta(r)
+		if err != nil || !m.notBefore.After(now) {
+			due = append(due, r)
+			continue
+		}
+		if rewind == nil {
+			rewind = make(map[string]map[int32]kgo.EpochOffset)
+			pause = make(map[string][]int32)
+		}
+		if rewind[r.Topic] == nil {
+			rewind[r.Topic] = make(map[int32]kgo.EpochOffset)
+		}
+		rewind[r.Topic][r.Partition] = kgo.EpochOffset{Epoch: r.LeaderEpoch, Offset: r.Offset}
+		pause[r.Topic] = append(pause[r.Topic], r.Partition)
+		c.paused[tp] = m.notBefore
+		c.log.Debug("kafka partition paused until its next record is due",
+			slog.String("topic", r.Topic), slog.Int("partition", int(r.Partition)),
+			slog.Int64("offset", r.Offset), slog.Time("not_before", m.notBefore))
+	}
+	if len(pause) > 0 {
+		c.cl.PauseFetchPartitions(pause)
+	}
+	return due, rewind
+}
+
 // handle processes one record. It returns an error only when the record must
-// not be committed; every outcome of the Processor is committed.
+// not be committed; every outcome of the Processor is committed, after any
+// produce to the retry topic or the DLQ has succeeded.
 func (c *Consumer) handle(ctx context.Context, r *kgo.Record) error {
 	attrs := []slog.Attr{
 		slog.String("topic", r.Topic),
 		slog.Int("partition", int(r.Partition)),
 		slog.Int64("offset", r.Offset),
 	}
+	m, metaErr := readMeta(r)
 	msg, err := ticket.UnmarshalSubmitted(r.Value)
 	if err != nil {
-		// T17: poison records go to the DLQ here.
-		c.log.LogAttrs(ctx, slog.LevelWarn, "poison record committed",
-			append(attrs, slog.String("outcome", triage.Poison.String()), errorAttr(err))...)
-		return nil
+		return c.deadLetter(ctx, r, m.attempt, ClassBadPayload, err, attrs)
 	}
 	id := msg.TicketID.String()
 	attrs = append(attrs, slog.String("ticket_id", id))
+	if metaErr != nil {
+		return c.giveUp(ctx, r, id, 0, ClassBadHeader, metaErr, attrs)
+	}
+	if m.attempt > 0 {
+		attrs = append(attrs, slog.Int("retry_attempt", m.attempt))
+	}
 
 	out, err := c.proc.Process(ctx, id)
 	if err != nil {
@@ -226,18 +345,64 @@ func (c *Consumer) handle(ctx context.Context, r *kgo.Record) error {
 	case triage.Done, triage.Skipped:
 		c.log.LogAttrs(ctx, slog.LevelInfo, "ticket processed", attrs...)
 	case triage.Retryable:
-		// T17: the record goes to the retry topic here, due after
-		// out.RetryAfter. Until then the ticket stays pending.
-		c.log.LogAttrs(ctx, slog.LevelWarn, "retryable ticket committed, left pending", append(attrs,
-			slog.Duration("retry_after", out.RetryAfter), errorAttr(out.Err))...)
+		if m.attempt >= c.cfg.Retry.MaxAttempts {
+			return c.giveUp(ctx, r, id, m.attempt, errorClass(out.Err), out.Err, attrs)
+		}
+		return c.retry(ctx, r, m.attempt+1, out, attrs)
 	case triage.Poison:
-		// T17: poison records go to the DLQ here.
-		c.log.LogAttrs(ctx, slog.LevelWarn, "poison record committed",
-			append(attrs, errorAttr(out.Err))...)
+		// The Processor already failed the ticket open if it exists.
+		return c.deadLetter(ctx, r, m.attempt, errorClass(out.Err), out.Err, attrs)
 	default:
 		return fmt.Errorf("process ticket %s: unknown outcome %s", id, out.Kind)
 	}
 	return nil
+}
+
+// retry produces r to the retry topic as attempt n, due after the backoff.
+func (c *Consumer) retry(ctx context.Context, r *kgo.Record, n int, out triage.Outcome, attrs []slog.Attr) error {
+	notBefore := time.Now().Add(c.cfg.Retry.delay(n, out.RetryAfter))
+	if err := c.produce(ctx, retryRecord(r, n, notBefore)); err != nil {
+		return err
+	}
+	c.log.LogAttrs(ctx, slog.LevelWarn, "ticket left pending, sent to the retry topic", append(attrs,
+		slog.Int("next_retry_attempt", n), slog.Time("not_before", notBefore.UTC()), errorAttr(out.Err))...)
+	return nil
+}
+
+// giveUp fails the ticket with the id open, then sends r to the DLQ.
+func (c *Consumer) giveUp(ctx context.Context, r *kgo.Record, id string, attempt int, class ErrorClass, cause error, attrs []slog.Attr) error {
+	out, err := c.proc.GiveUp(ctx, id)
+	if err != nil {
+		return fmt.Errorf("give up on ticket %s: %w", id, err)
+	}
+	if out.Kind == triage.Done {
+		c.log.LogAttrs(ctx, slog.LevelWarn, "ticket failed open before the DLQ", append(attrs,
+			slog.String("status", string(out.Status)), slog.String("status_reason", string(out.Reason)))...)
+	}
+	return c.deadLetter(ctx, r, attempt, class, cause, attrs)
+}
+
+// deadLetter produces r to the DLQ with its failure metadata.
+func (c *Consumer) deadLetter(ctx context.Context, r *kgo.Record, attempt int, class ErrorClass, cause error, attrs []slog.Attr) error {
+	if err := c.produce(ctx, dlqRecord(r, attempt, class, time.Now())); err != nil {
+		return err
+	}
+	c.log.LogAttrs(ctx, slog.LevelWarn, "record sent to the DLQ", append(attrs,
+		slog.String("error_class", string(class)), errorAttr(cause))...)
+	return nil
+}
+
+// produce writes rec and waits for the broker to acknowledge it.
+func (c *Consumer) produce(ctx context.Context, rec *kgo.Record) error {
+	if err := c.cl.ProduceSync(ctx, rec).FirstErr(); err != nil {
+		return fmt.Errorf("kafka: produce to %s: %w", rec.Topic, err)
+	}
+	return nil
+}
+
+type topicPartition struct {
+	topic     string
+	partition int32
 }
 
 func errorAttr(err error) slog.Attr {

@@ -114,7 +114,8 @@ func TestDefaults(t *testing.T) {
 			WriteTimeout:      10 * time.Second,
 		},
 		Postgres: Postgres{URL: NewSecret("postgres://triage:triage@localhost:5432/triage?sslmode=disable")},
-		Kafka:    Kafka{Brokers: []string{"localhost:29092"}, ConsumerGroup: "triage-workers"},
+		Kafka: Kafka{Brokers: []string{"localhost:29092"}, ConsumerGroup: "triage-workers",
+			RetryConsumerGroup: "triage-workers-retry"},
 		Outbox: Outbox{
 			PollInterval:    500 * time.Millisecond,
 			BatchSize:       100,
@@ -141,7 +142,8 @@ func TestDefaults(t *testing.T) {
 			ComplaintUncertainHigh: 0.65,
 			RouteOtherToHuman:      true,
 		},
-		Worker: Worker{Concurrency: 8, BatchSize: 64, ShutdownTimeout: 30 * time.Second},
+		Worker: Worker{Concurrency: 8, BatchSize: 64, ShutdownTimeout: 30 * time.Second,
+			RetryMaxAttempts: 3, RetryBackoffBase: 30 * time.Second, RetryBackoffMax: 10 * time.Minute},
 		Limits: Limits{
 			SubmitRatePerMin:      5,
 			SubmitBurst:           3,
@@ -220,9 +222,11 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "worker",
-			env:  map[string]string{"WORKER_CONCURRENCY": "2", "WORKER_BATCH_SIZE": "10", "WORKER_SHUTDOWN_TIMEOUT": "1m"},
+			env: map[string]string{"WORKER_CONCURRENCY": "2", "WORKER_BATCH_SIZE": "10", "WORKER_SHUTDOWN_TIMEOUT": "1m",
+				"WORKER_RETRY_MAX_ATTEMPTS": "5", "WORKER_RETRY_BACKOFF_BASE": "1s", "WORKER_RETRY_BACKOFF_MAX": "1h"},
 			check: func(t *testing.T, c all) {
-				want := Worker{Concurrency: 2, BatchSize: 10, ShutdownTimeout: time.Minute}
+				want := Worker{Concurrency: 2, BatchSize: 10, ShutdownTimeout: time.Minute,
+					RetryMaxAttempts: 5, RetryBackoffBase: time.Second, RetryBackoffMax: time.Hour}
 				if c.Worker != want {
 					t.Errorf("Worker = %+v, want %+v", c.Worker, want)
 				}
@@ -333,6 +337,8 @@ func TestValidation(t *testing.T) {
 		{"kafka brokers only commas", map[string]string{"KAFKA_BROKERS": ", ,"}, []string{"KAFKA_BROKERS"}},
 		{"worker concurrency zero", map[string]string{"WORKER_CONCURRENCY": "0"}, []string{"WORKER_CONCURRENCY"}},
 		{"worker shutdown timeout zero", map[string]string{"WORKER_SHUTDOWN_TIMEOUT": "0s"}, []string{"WORKER_SHUTDOWN_TIMEOUT"}},
+		{"worker retry max attempts zero", map[string]string{"WORKER_RETRY_MAX_ATTEMPTS": "0"}, []string{"WORKER_RETRY_MAX_ATTEMPTS"}},
+		{"worker retry backoff negative", map[string]string{"WORKER_RETRY_BACKOFF_BASE": "-1s"}, []string{"WORKER_RETRY_BACKOFF_BASE"}},
 		{"classifier kind", map[string]string{"CLASSIFIER": "magic"}, []string{"CLASSIFIER"}},
 		{"jev provider", map[string]string{"JEV_PROVIDER": "acme"}, []string{"JEV_PROVIDER"}},
 		{"openrouter key missing", map[string]string{"CLASSIFIER": "jev", "TYPESAFE_API_KEY": "k"}, []string{"OPENROUTER_API_KEY"}},

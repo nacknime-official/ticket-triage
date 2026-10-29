@@ -2,13 +2,19 @@
 // in the KAFKA_CONSUMER_GROUP group and runs the triage processor on each
 // record, committing a batch once all of it is processed.
 //
+// A ticket that fails transiently goes to tickets.submitted.retry, which the
+// worker consumes too, in the KAFKA_RETRY_CONSUMER_GROUP group, once each
+// record is due. After WORKER_RETRY_MAX_ATTEMPTS retries, or at once for a
+// poison record, the ticket goes to needs_human and its record to
+// tickets.submitted.dlq; cmd/redrive re-publishes DLQ records by hand.
+//
 // Usage: worker
 //
 // Configuration comes from the environment; see .env.example. On SIGINT or
 // SIGTERM the worker stops polling, finishes the tickets in flight within
-// WORKER_SHUTDOWN_TIMEOUT, commits them, leaves the group and exits; a second
-// signal kills it at once. When the classifier rejects its credentials it
-// stops without committing the batch and exits non-zero.
+// WORKER_SHUTDOWN_TIMEOUT, commits them, leaves the groups and exits; a
+// second signal kills it at once. When the classifier rejects its
+// credentials it stops without committing the batch and exits non-zero.
 package main
 
 import (
@@ -18,6 +24,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
+
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 	"github.com/nacknime-official/ticket-triage/internal/classifier/jev"
@@ -29,7 +38,10 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/triage"
 )
 
-const clientID = "ticket-triage-worker"
+const (
+	clientID      = "ticket-triage-worker"
+	retryClientID = "ticket-triage-worker-retry"
+)
 
 func main() {
 	ctx, stop := lifecycle.SignalContext(context.Background())
@@ -78,53 +90,100 @@ func run(ctx context.Context, args []string, getenv func(string) string, logOut 
 		CallTimeout:    clsCfg.Jev.Timeout,
 	}, log)
 
-	cl, err := kafka.NewClient(kafkaCfg.Brokers, clientID, kafka.ConsumerOpts(kafkaCfg.ConsumerGroup)...)
-	if err != nil {
-		pool.Close()
-		return err
-	}
-	consumer, err := kafka.NewConsumer(cl, proc, kafka.ConsumerConfig{
+	consumerCfg := kafka.ConsumerConfig{
 		Concurrency: workerCfg.Concurrency,
 		BatchSize:   workerCfg.BatchSize,
-	}, log)
+		Retry: kafka.RetryPolicy{
+			MaxAttempts: workerCfg.RetryMaxAttempts,
+			BackoffBase: workerCfg.RetryBackoffBase,
+			BackoffMax:  workerCfg.RetryBackoffMax,
+		},
+	}
+	primary, err := newConsumer(kafkaCfg.Brokers, clientID, kafka.ConsumerOpts(kafkaCfg.ConsumerGroup), proc, consumerCfg, log)
 	if err != nil {
-		cl.Close()
 		pool.Close()
 		return err
 	}
+	retry, err := newConsumer(kafkaCfg.Brokers, retryClientID,
+		kafka.RetryConsumerOpts(kafkaCfg.RetryConsumerGroup), proc, consumerCfg, log)
+	if err != nil {
+		primary.cl.Close()
+		pool.Close()
+		return err
+	}
+	consumers := []consumer{primary, retry}
 
-	runErr := make(chan error, 1)
-	go func() { runErr <- consumer.Run(ctx) }()
+	runErr := make(chan error, len(consumers))
+	for _, c := range consumers {
+		go func() { runErr <- c.Run(ctx) }()
+	}
+	running := len(consumers)
 	var errs []error
-	draining := false
 	select {
 	case err := <-runErr:
 		// Run stops on its own only when a record failed, ErrAuth included.
+		running--
 		errs = append(errs, err)
 	case <-ctx.Done():
-		draining = true
 		log.InfoContext(ctx, "worker shutting down", slog.Duration("timeout", workerCfg.ShutdownTimeout))
 	}
 
 	errs = append(errs, lifecycle.Shutdown(ctx, workerCfg.ShutdownTimeout,
-		lifecycle.Step{Name: "consumer", Stop: consumer.Stop},
+		lifecycle.Step{Name: "consumers", Stop: func(ctx context.Context) error {
+			return each(consumers, func(c consumer) error { return c.Stop(ctx) })
+		}},
 		lifecycle.Step{Name: "kafka", Stop: func(ctx context.Context) error {
-			defer cl.Close()
-			return cl.LeaveGroupContext(ctx)
+			return each(consumers, func(c consumer) error {
+				defer c.cl.Close()
+				return c.cl.LeaveGroupContext(ctx)
+			})
 		}},
 		lifecycle.Step{Name: "postgres", Stop: func(context.Context) error {
 			pool.Close()
 			return nil
 		}},
 	))
-	if draining {
-		// Run has returned unless the drain was cut off.
+	// Every Run has returned unless its drain was cut off.
+	for range running {
 		select {
 		case err := <-runErr:
 			errs = append(errs, err)
 		default:
 		}
 	}
+	return errors.Join(errs...)
+}
+
+// consumer is a kafka.Consumer with the client it polls with.
+type consumer struct {
+	*kafka.Consumer
+	cl *kgo.Client
+}
+
+// newConsumer returns a consumer whose client is built with opts.
+func newConsumer(brokers []string, clientID string, opts []kgo.Opt, proc kafka.Processor,
+	cfg kafka.ConsumerConfig, log *slog.Logger,
+) (consumer, error) {
+	cl, err := kafka.NewClient(brokers, clientID, opts...)
+	if err != nil {
+		return consumer{}, err
+	}
+	c, err := kafka.NewConsumer(cl, proc, cfg, log)
+	if err != nil {
+		cl.Close()
+		return consumer{}, err
+	}
+	return consumer{Consumer: c, cl: cl}, nil
+}
+
+// each runs fn for every consumer at once and joins the errors.
+func each(cs []consumer, fn func(consumer) error) error {
+	errs := make([]error, len(cs))
+	var wg sync.WaitGroup
+	for i, c := range cs {
+		wg.Go(func() { errs[i] = fn(c) })
+	}
+	wg.Wait()
 	return errors.Join(errs...)
 }
 
