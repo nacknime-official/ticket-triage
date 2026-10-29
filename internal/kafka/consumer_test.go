@@ -24,12 +24,14 @@ import (
 
 const testGroup = "triage-workers-test"
 
-// fakeProcessor runs fn for every Process call and records the ids.
+// fakeProcessor runs fn for every Process call and records the ids, and
+// those of every GiveUp call.
 type fakeProcessor struct {
 	fn func(ctx context.Context, id string) (triage.Outcome, error)
 
-	mu  sync.Mutex
-	ids []string
+	mu       sync.Mutex
+	ids      []string
+	gaveUpOn []string
 }
 
 func (p *fakeProcessor) Process(ctx context.Context, id string) (triage.Outcome, error) {
@@ -42,6 +44,20 @@ func (p *fakeProcessor) Process(ctx context.Context, id string) (triage.Outcome,
 	return p.fn(ctx, id)
 }
 
+func (p *fakeProcessor) GiveUp(_ context.Context, id string) (triage.Outcome, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gaveUpOn = append(p.gaveUpOn, id)
+	return triage.Outcome{Kind: triage.Done, Status: ticket.StatusNeedsHuman, Reason: ticket.ReasonClassifierUnavailable}, nil
+}
+
+// gaveUp returns the ids given up on so far, sorted.
+func (p *fakeProcessor) gaveUp() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Sorted(slices.Values(p.gaveUpOn))
+}
+
 // seen returns the ids processed so far, sorted.
 func (p *fakeProcessor) seen() []string {
 	p.mu.Lock()
@@ -51,7 +67,8 @@ func (p *fakeProcessor) seen() []string {
 
 func newCluster(t *testing.T, partitions int32) []string {
 	t.Helper()
-	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(partitions, kafka.TopicSubmitted))
+	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(partitions,
+		kafka.TopicSubmitted, kafka.TopicSubmittedRetry, kafka.TopicSubmittedDLQ))
 	if err != nil {
 		t.Fatalf("start kfake cluster: %v", err)
 	}
@@ -108,7 +125,13 @@ type running struct {
 // leaves the group and closes the client.
 func start(t *testing.T, addrs []string, proc kafka.Processor, cfg kafka.ConsumerConfig) *running {
 	t.Helper()
-	opts := append(kafka.ConsumerOpts(testGroup), kgo.FetchMaxWait(100*time.Millisecond))
+	return startWith(t, addrs, proc, cfg, kafka.ConsumerOpts(testGroup))
+}
+
+// startWith is start for a client built with opts.
+func startWith(t *testing.T, addrs []string, proc kafka.Processor, cfg kafka.ConsumerConfig, opts []kgo.Opt) *running {
+	t.Helper()
+	opts = append(opts, kgo.FetchMaxWait(100*time.Millisecond))
 	cl, err := kafka.NewClient(addrs, "kafka-test-consumer", opts...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)

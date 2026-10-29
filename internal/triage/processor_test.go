@@ -65,6 +65,9 @@ func (s *fakeStore) SpentSince(_ context.Context, since time.Time) (float64, err
 func (s *fakeStore) Apply(_ context.Context, u triage.Update) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.err != nil {
+		return false, s.err
+	}
 	t, ok := s.tickets[u.TicketID]
 	if s.lose || !ok || t.Status != ticket.StatusPending {
 		return false, nil
@@ -588,5 +591,62 @@ func TestLastErrorCapped(t *testing.T) {
 	got := store.ticket(tk.ID).LastError
 	if len(got) > 512 || !utf8.ValidString(got) || !strings.HasPrefix(long.Error(), got) {
 		t.Fatalf("last_error has %d bytes (valid UTF-8 %v), want a valid prefix of at most 512", len(got), utf8.ValidString(got))
+	}
+}
+
+// TestGiveUp checks the fail-open before the dead-letter queue: only a
+// pending ticket moves to needs_human, without a classifier call.
+func TestGiveUp(t *testing.T) {
+	tests := []struct {
+		name string
+		// prepare adjusts the store and returns the id to give up on.
+		prepare    func(s *fakeStore, tk ticket.Ticket) string
+		wantKind   triage.Kind
+		wantCause  error
+		wantStatus ticket.Status
+	}{
+		{"pending", func(_ *fakeStore, tk ticket.Ticket) string { return tk.ID.String() },
+			triage.Done, nil, ticket.StatusNeedsHuman},
+		{"already classified", func(s *fakeStore, tk ticket.Ticket) string {
+			tk.Status = ticket.StatusClassified
+			s.tickets[tk.ID] = tk
+			return tk.ID.String()
+		}, triage.Skipped, nil, ticket.StatusClassified},
+		{"missing", func(*fakeStore, ticket.Ticket) string { return uuid.NewV7().String() },
+			triage.Skipped, nil, ticket.StatusPending},
+		{"bad id", func(*fakeStore, ticket.Ticket) string { return "not-a-uuid" },
+			triage.Poison, triage.ErrBadID, ticket.StatusPending},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tk := pendingTicket()
+			store := newFakeStore(tk)
+			cls := &script{steps: steps(answer(confident()))}
+			id := tt.prepare(store, tk)
+
+			out, err := newProcessor(store, cls, testConfig()).GiveUp(t.Context(), id)
+			if err != nil {
+				t.Fatalf("GiveUp: %v", err)
+			}
+			if out.Kind != tt.wantKind || !errors.Is(out.Err, tt.wantCause) {
+				t.Errorf("GiveUp = %+v, want kind %v, cause %v", out, tt.wantKind, tt.wantCause)
+			}
+			if tt.wantKind == triage.Done &&
+				(out.Status != ticket.StatusNeedsHuman || out.Reason != ticket.ReasonClassifierUnavailable) {
+				t.Errorf("GiveUp = %s/%s, want needs_human/classifier_unavailable", out.Status, out.Reason)
+			}
+			if got := store.ticket(tk.ID).Status; got != tt.wantStatus {
+				t.Errorf("stored status = %s, want %s", got, tt.wantStatus)
+			}
+			if n := len(cls.times()); n != 0 {
+				t.Errorf("classifier calls = %d, want 0", n)
+			}
+		})
+	}
+
+	store := newFakeStore()
+	store.err = errors.New("db down")
+	if _, err := newProcessor(store, &script{}, testConfig()).GiveUp(t.Context(), uuid.NewV7().String()); err == nil {
+		t.Error("GiveUp with a failing store succeeded, want an error")
 	}
 }

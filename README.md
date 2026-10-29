@@ -334,7 +334,7 @@ Data model (start):
 | `outbox` | topic, key, payload, headers, created_at, published_at; partial index on unpublished rows |
 | `stream_tokens` | token hash, ticket id, expires_at, used_at |
 
-Planned layout: `cmd/{api,worker,migrate,kafka-setup,jevprobe,eval}`, `internal/{ticket,classifier,classifier/jev,
+Planned layout: `cmd/{api,worker,migrate,kafka-setup,redrive,jevprobe,eval}`, `internal/{ticket,classifier,classifier/jev,
 triage,outbox,kafka,notify,storage/postgres,httpapi,config}`, `migrations/`, `testdata/eval/`.
 
 ---

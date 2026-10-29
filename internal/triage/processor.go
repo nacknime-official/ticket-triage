@@ -276,6 +276,26 @@ func (p *Processor) Process(ctx context.Context, ticketID string) (Outcome, erro
 	}
 }
 
+// GiveUp fails the ticket with the id open: it moves the ticket to
+// needs_human with reason classifier_unavailable if it is still pending. The
+// transport calls it before it sends a message to the dead-letter queue
+// because its retries ran out (README §4.2, level 3), so the ticket reaches a
+// person instead of staying pending.
+//
+// It returns Done when it moved the ticket, Skipped when the ticket was no
+// longer pending or does not exist, and Poison for an id that does not parse.
+// A non-nil error is a storage failure; the message must not be committed.
+func (p *Processor) GiveUp(ctx context.Context, ticketID string) (Outcome, error) {
+	id, err := uuid.Parse(ticketID)
+	if err != nil {
+		return Outcome{Kind: Poison, Err: fmt.Errorf("%w: %w", ErrBadID, err)}, nil
+	}
+	return p.finish(ctx, Update{
+		TicketID: id, Status: ticket.StatusNeedsHuman, Reason: ticket.ReasonClassifierUnavailable,
+		At: time.Now().UTC(),
+	}, Done, nil)
+}
+
 // finish validates the transition, applies u, and returns an outcome of kind,
 // or Skipped when the ticket was no longer pending. base carries the
 // kind-specific fields.
