@@ -8,7 +8,7 @@ import (
 	"uuid"
 )
 
-// DefaultStreamTokenTTL is the default lifetime of a stream token (README §4.1).
+// DefaultStreamTokenTTL is the default lifetime of a stream token (PRD §4.1).
 const DefaultStreamTokenTTL = 60 * time.Second
 
 // StreamTokenStore stores stream tokens by their hash.
@@ -22,7 +22,7 @@ type StreamTokenStore interface {
 }
 
 // Streams issues and redeems the single-use stream tokens that open the SSE
-// stream of a ticket (README §3.4). EventSource cannot send headers, so the
+// stream of a ticket (PRD §3.4). EventSource cannot send headers, so the
 // page trades its access token for a short-lived stream token it can put in
 // the URL.
 type Streams struct {

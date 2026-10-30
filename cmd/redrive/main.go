@@ -10,7 +10,7 @@
 // attempt. The DLQ is left as it is.
 //
 // The worker skips a ticket that is no longer pending, and a ticket in the
-// DLQ usually went to needs_human first (README §4.2). Re-drive is for a
+// DLQ usually went to needs_human first (PRD §4.2). Re-drive is for a
 // ticket that is still pending or was set back to pending by hand.
 //
 // The brokers come from the KAFKA_BROKERS environment variable.

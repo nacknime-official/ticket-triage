@@ -13,7 +13,7 @@ import (
 )
 
 // sweepSteps divides [0, 1] into the 0.05 threshold grid: tuning finer than 0.05
-// is pointless (README §3.3).
+// is pointless (PRD §3.3).
 const sweepSteps = 20
 
 // Complaint and priority labels in confusion matrices.
@@ -184,7 +184,7 @@ type sweepPoint struct {
 }
 
 // threshold returns grid step i of [0, 1]; i/20 is exact enough that the
-// README start values 0.60 and 0.50 land on the grid.
+// PRD start values 0.60 and 0.50 land on the grid.
 func threshold(i int) float64 {
 	return float64(i) / sweepSteps
 }

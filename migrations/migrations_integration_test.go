@@ -180,7 +180,7 @@ func insertTicket(t *testing.T, conn *pgx.Conn) uuid.UUID {
 	return id
 }
 
-// TestConditionalUpdate checks the idempotent-consumer write from README §4.2:
+// TestConditionalUpdate checks the idempotent-consumer write from PRD §4.2:
 // only the first result for a pending ticket changes it, and the audit row and
 // the update share one transaction.
 func TestConditionalUpdate(t *testing.T) {
@@ -250,7 +250,7 @@ func TestConditionalUpdate(t *testing.T) {
 	}
 }
 
-// TestStreamTokenConsume checks the atomic single-use consume from README §4.1.
+// TestStreamTokenConsume checks the atomic single-use consume from PRD §4.1.
 func TestStreamTokenConsume(t *testing.T) {
 	conn := migrated(t)
 	ctx := t.Context()
@@ -305,7 +305,7 @@ func TestStreamTokenConsume(t *testing.T) {
 	}
 }
 
-// TestConstraints checks that the schema rejects states the README rules out.
+// TestConstraints checks that the schema rejects states the PRD rules out.
 func TestConstraints(t *testing.T) {
 	conn := migrated(t)
 	ctx := t.Context()

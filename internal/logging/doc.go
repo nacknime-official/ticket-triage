@@ -1,5 +1,5 @@
 // Package logging builds the process logger: log/slog JSON with the level
-// from config and the redaction rules of README §4.1 applied to every
+// from config and the redaction rules of PRD §4.1 applied to every
 // attribute, including attributes added with Logger.With and inside groups.
 //
 // Redaction rules. Access tokens, stream tokens, the Authorization header,

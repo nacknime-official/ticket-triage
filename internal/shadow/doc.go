@@ -1,4 +1,4 @@
-// Package shadow re-classifies history in shadow mode (README §6.1, roadmap
+// Package shadow re-classifies history in shadow mode (PRD §6.1, roadmap
 // T24): its Processor classifies a ticket with the model and thresholds of a
 // replay run and stores the result only as a shadow row keyed by run and
 // ticket. It never changes a ticket, never writes the classifications audit

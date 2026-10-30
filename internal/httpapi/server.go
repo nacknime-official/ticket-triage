@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ServerTimeouts are the http.Server timeouts of README §4.1.
+// ServerTimeouts are the http.Server timeouts of PRD §4.1.
 type ServerTimeouts struct {
 	ReadHeader time.Duration // reading the request header
 	Read       time.Duration // reading the whole request, body included

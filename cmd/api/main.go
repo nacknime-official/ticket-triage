@@ -1,7 +1,7 @@
 // Command api serves the public HTTP API: POST /tickets, GET /tickets/{id},
 // POST /tickets/{id}/stream-token, the SSE stream GET /tickets/{id}/events,
 // GET /healthz, GET /readyz and the built-in page on GET /, behind the
-// limits of README §4.1. It runs the outbox relay that publishes submitted
+// limits of PRD §4.1. It runs the outbox relay that publishes submitted
 // tickets to Kafka, and reads tickets.events without a consumer group into
 // the hub that feeds the SSE streams. A second listener, on a loopback address only, serves pprof,
 // including the goroutineleak profile.

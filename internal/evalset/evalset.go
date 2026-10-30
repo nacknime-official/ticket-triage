@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 )
 
-// Allowed field values. Categories and urgency levels follow README §3.3.
+// Allowed field values. Categories and urgency levels follow PRD §3.3.
 var (
 	Categories = []string{"billing", "technical", "account", "feature_request", "other"}
 	Langs      = []string{"en", "uk"}

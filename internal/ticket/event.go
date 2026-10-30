@@ -9,7 +9,7 @@ import (
 )
 
 // Submitted is the event that announces a new ticket to the classifier
-// workers (README §5). It carries the id only, never ticket text: the worker
+// workers (PRD §5). It carries the id only, never ticket text: the worker
 // reads the ticket from storage.
 type Submitted struct {
 	TicketID    uuid.UUID `json:"ticket_id"`
@@ -49,7 +49,7 @@ func UnmarshalSubmitted(b []byte) (Submitted, error) {
 const StatusChangedType = "ticket.status_changed"
 
 // StatusChanged is the event that announces a ticket leaving pending to the
-// API instances (README §2, step 4; §3.4). It carries ids and status fields
+// API instances (PRD §2, step 4; §3.4). It carries ids and status fields
 // only, never ticket text; its fields match GET /tickets/{id}, with null for
 // what is not set.
 type StatusChanged struct {

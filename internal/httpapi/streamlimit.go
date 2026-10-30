@@ -13,7 +13,7 @@ type StreamLimit struct {
 }
 
 // StreamLimiter caps the open SSE streams per client and per instance
-// (README §4.1). A client is keyed like in RateLimiter: one IPv4 address or
+// (PRD §4.1). A client is keyed like in RateLimiter: one IPv4 address or
 // one IPv6 /64. Only clients with an open stream are tracked, so memory is
 // bounded by Global.
 type StreamLimiter struct {

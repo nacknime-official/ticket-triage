@@ -44,7 +44,7 @@ type provider struct {
 var providers = map[string]provider{
 	ProviderOpenRouter: {baseURL: "https://openrouter.ai/api", model: func(m string) string { return m }},
 	// The direct API answers at api.typesafe.ai/v1/systemone (a 401 for a bad
-	// key, T12); its success format is [unverified] (README §7).
+	// key, T12); its success format is [unverified] (PRD §7).
 	ProviderTypeSafe: {baseURL: "https://api.typesafe.ai", model: typeSafeModel},
 }
 
@@ -89,7 +89,7 @@ type Config struct {
 	HTTPClient *http.Client
 	// Logger, if set, gets one line per HTTP call, for callers that use the
 	// adapter directly (cmd/jevprobe, cmd/eval). nil logs nothing. Leave it
-	// nil under triage.Processor, which writes the README §4.3 line with
+	// nil under triage.Processor, which writes the PRD §4.3 line with
 	// ticket_id and attempt itself, so a call is logged once.
 	Logger *slog.Logger
 }
@@ -317,7 +317,7 @@ func (c *Client) decode(body []byte, call classifier.Call) (classifier.Result, e
 }
 
 // cost is the reported cost, else input tokens times the configured price,
-// else unknown (README §4.4).
+// else unknown (PRD §4.4).
 func (c *Client) cost(u usage) (float64, classifier.CostSource) {
 	switch {
 	case u.Cost != nil:
@@ -353,7 +353,7 @@ func outcome(err error) string {
 	}
 }
 
-// logCall writes the README §4.3 fields the adapter knows; ticket_id and
+// logCall writes the PRD §4.3 fields the adapter knows; ticket_id and
 // attempt belong to the caller. It never logs the ticket text, the API key or
 // the request headers; err texts are built here and hold none.
 func (c *Client) logCall(ctx context.Context, call classifier.Call, err error) {

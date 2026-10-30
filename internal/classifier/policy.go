@@ -2,7 +2,7 @@ package classifier
 
 import "github.com/nacknime-official/ticket-triage/internal/ticket"
 
-// Thresholds configures Decide (README §3.3).
+// Thresholds configures Decide (PRD §3.3).
 type Thresholds struct {
 	// CategoryMinConfidence: a lower category confidence is low_confidence.
 	CategoryMinConfidence float64
@@ -16,7 +16,7 @@ type Thresholds struct {
 	RouteOtherToHuman bool
 }
 
-// DefaultThresholds returns the start values of README §3.3.
+// DefaultThresholds returns the start values of PRD §3.3.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
 		CategoryMinConfidence:  0.60,

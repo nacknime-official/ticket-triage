@@ -12,7 +12,7 @@ import (
 
 var _ ticket.StreamTokenStore = (*StreamTokens)(nil)
 
-// StreamTokens stores the single-use SSE stream tokens (README §3.1, §4.1),
+// StreamTokens stores the single-use SSE stream tokens (PRD §3.1, §4.1),
 // only as sha256 hashes.
 type StreamTokens struct {
 	q Querier

@@ -129,7 +129,7 @@ func TestPageReferencesServedAssets(t *testing.T) {
 	}
 }
 
-// TestPageKeepsTokensInMemory guards README §3.4 and §4.1 against a later
+// TestPageKeepsTokensInMemory guards PRD §3.4 and §4.1 against a later
 // edit of the page: no external requests, no inline script or style that the
 // CSP would block, and no storage that could keep a token.
 func TestPageKeepsTokensInMemory(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/classifier"
 )
 
-// Question ids of README §3.3. Jev does not show them to the model; the
+// Question ids of PRD §3.3. Jev does not show them to the model; the
 // meaning comes from instructions and criteria only.
 const (
 	questionComplaint = "is_complaint"
@@ -150,7 +150,7 @@ type state struct {
 	Body    string `json:"body"`
 }
 
-// questions keeps the README §3.3 order on the wire.
+// questions keeps the PRD §3.3 order on the wire.
 type questions struct {
 	IsComplaint noulQuestion   `json:"is_complaint"`
 	Category    choiceQuestion `json:"category"`
@@ -205,7 +205,7 @@ func (c choiceCriteria) MarshalJSONTo(enc *jsontext.Encoder) error {
 
 var _ json.MarshalerTo = choiceCriteria(nil)
 
-// buildQuestions returns the three questions of README §3.3 over tax.
+// buildQuestions returns the three questions of PRD §3.3 over tax.
 func buildQuestions(tax classifier.Taxonomy) questions {
 	return questions{
 		IsComplaint: noulQuestion{

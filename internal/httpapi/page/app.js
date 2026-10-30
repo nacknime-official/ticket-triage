@@ -1,4 +1,4 @@
-// The flow of README §3.4: POST /tickets, keep the access token in memory
+// The flow of PRD §3.4: POST /tickets, keep the access token in memory
 // only, trade it for a single-use stream token, follow the status over
 // EventSource until a final status. Tokens never go to storage, cookies or
 // the page URL; the stream token is in the EventSource URL only, and the
@@ -130,7 +130,7 @@
   }
 
   // connect mints a stream token and opens the event stream. The stream
-  // token is single-use, so every reconnect mints a new one (README §3.4).
+  // token is single-use, so every reconnect mints a new one (PRD §3.4).
   async function connect(c) {
     if (c.done) return;
     let resp;

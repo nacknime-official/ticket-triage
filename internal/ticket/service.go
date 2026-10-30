@@ -8,7 +8,7 @@ import (
 	"uuid"
 )
 
-// DefaultMaxPending is the default cap on pending tickets (README §4.1).
+// DefaultMaxPending is the default cap on pending tickets (PRD §4.1).
 const DefaultMaxPending = 1000
 
 var (
@@ -24,7 +24,7 @@ var (
 type Repository interface {
 	// Submit stores the new ticket t together with its Submitted event, in
 	// one transaction, so the event is published if and only if the ticket
-	// is stored (README §4.2: no dual writes).
+	// is stored (PRD §4.2: no dual writes).
 	Submit(ctx context.Context, t Ticket) error
 	// Get returns the ticket with the id, or an error wrapping ErrNotFound.
 	Get(ctx context.Context, id uuid.UUID) (Ticket, error)

@@ -276,7 +276,7 @@ type Worker struct {
 	BatchSize       int           // WORKER_BATCH_SIZE, max records per poll and commit
 	ShutdownTimeout time.Duration // WORKER_SHUTDOWN_TIMEOUT, to drain in-flight tickets and leave the group
 	// RetryMaxAttempts is the number of trips through tickets.submitted.retry
-	// before a ticket goes to needs_human and the DLQ (README §4.2).
+	// before a ticket goes to needs_human and the DLQ (PRD §4.2).
 	RetryMaxAttempts int           // WORKER_RETRY_MAX_ATTEMPTS
 	RetryBackoffBase time.Duration // WORKER_RETRY_BACKOFF_BASE, before retry 1; doubled per retry
 	RetryBackoffMax  time.Duration // WORKER_RETRY_BACKOFF_MAX
@@ -306,7 +306,7 @@ func (c Worker) LogValue() slog.Value {
 	)
 }
 
-// Limits configures the resource limits of README §4.1.
+// Limits configures the resource limits of PRD §4.1.
 type Limits struct {
 	SubmitRatePerMin      float64       // SUBMIT_RATE_PER_MIN, per client IP
 	SubmitBurst           int           // SUBMIT_BURST

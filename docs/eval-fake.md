@@ -246,7 +246,7 @@ From the repository root. The fake run needs no key and makes no network call:
 go run ./cmd/eval  # writes docs/eval-fake.md
 ```
 
-The live run calls Jev once per row (about 100 calls, a fraction of a cent at the README §4.4 price)
+The live run calls Jev once per row (about 100 calls, a fraction of a cent at the PRD §4.4 price)
 with the key from `~/.config/ticket-triage/.env`, stops if the calls cost more than `-max-cost` ($0.05),
 and writes `docs/eval.md`:
 

@@ -359,7 +359,7 @@ func capError(err error) string {
 	return s
 }
 
-// logCall writes the per-call log line of README §4.3, marked with the run.
+// logCall writes the per-call log line of PRD §4.3, marked with the run.
 func (p *Processor) logCall(ctx context.Context, id uuid.UUID, attempt int, c classifier.Call, err error) {
 	level := slog.LevelInfo
 	attrs := []slog.Attr{

@@ -37,7 +37,7 @@ type TopicSpec struct {
 //
 // Partitions bound consumer parallelism: tickets.submitted has the most
 // because it feeds the worker group. Retention covers what each topic is read
-// for: replaying tickets.submitted to re-classify history (README §6.1),
+// for: replaying tickets.submitted to re-classify history (PRD §6.1),
 // re-driving the DLQ by hand, and live status events, which Postgres also
 // keeps.
 func Topics() []TopicSpec {

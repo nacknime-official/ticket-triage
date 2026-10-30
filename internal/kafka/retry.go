@@ -13,7 +13,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/triage"
 )
 
-// Record headers of the retry topic and the DLQ (README §4.2). They carry
+// Record headers of the retry topic and the DLQ (PRD §4.2). They carry
 // only delivery metadata, never ticket text.
 const (
 	// HeaderAttempt is the number of retry-topic attempts the record has
@@ -88,7 +88,7 @@ const (
 	DefaultRetryBackoffMax  = 10 * time.Minute
 )
 
-// RetryPolicy configures level 2 of README §4.2, the retry topic. Zero
+// RetryPolicy configures level 2 of PRD §4.2, the retry topic. Zero
 // fields take the defaults.
 type RetryPolicy struct {
 	// MaxAttempts is the number of trips through the retry topic; a record

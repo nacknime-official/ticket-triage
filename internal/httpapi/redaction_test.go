@@ -56,7 +56,7 @@ func (s *lockedService) Get(ctx context.Context, id string, token ticket.Token) 
 	return s.svc.Get(ctx, id, token)
 }
 
-// carelessLog stands in for a middleware written without the README §4.1
+// carelessLog stands in for a middleware written without the PRD §4.1
 // rules: it logs the raw URL, query and headers. The redacting handler alone
 // must keep the tokens out of its output.
 func carelessLog(logger *slog.Logger) Middleware {

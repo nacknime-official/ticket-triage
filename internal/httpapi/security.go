@@ -12,7 +12,7 @@ import (
 const contentSecurityPolicy = "default-src 'self'; object-src 'none'; base-uri 'none'; " +
 	"frame-ancestors 'none'; form-action 'self'"
 
-// SecurityHeaders sets the response headers of README §4.1 on every response.
+// SecurityHeaders sets the response headers of PRD §4.1 on every response.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -42,7 +42,7 @@ func LimitBody(maxBytes int64) Middleware {
 }
 
 // WriteDeadline gives a non-streaming handler d to write its response, since
-// the server has no WriteTimeout (README §4.1). Every ResponseWriter wrapper
+// the server has no WriteTimeout (PRD §4.1). Every ResponseWriter wrapper
 // between the server and this middleware must implement
 // Unwrap() http.ResponseWriter. If the deadline cannot be set the request
 // fails with 500 rather than run unbounded, so a wrapper that hides the

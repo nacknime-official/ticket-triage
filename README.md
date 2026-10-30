@@ -1,566 +1,258 @@
-# Ticket Triage — Product Requirements
+# Ticket Triage
 
-Status: draft PRD, 2026-10-28. This README holds the PRD until there is code; a later task turns it into a
-regular project README and moves the PRD under `docs/`.
+Ticket Triage takes a support request over HTTP, classifies it in the background with **Jev** (a typed
+"decision model" that answers with probabilities instead of text), and either routes it to a team or hands it
+to a person when the model is not confident. The submitter watches the outcome arrive live over Server-Sent
+Events (SSE).
 
-Facts tagged **[unverified]** come from documentation or third-party write-ups and have not been confirmed by
-a live call or a local run. The adapter and the probe task (T12) are designed to absorb any differences.
+Each ticket, in English or Ukrainian, gets three answers: whether it is a complaint, which team should handle
+it (`billing`, `technical`, `account`, `feature_request` or `other`), and how urgent it is (`low`, `normal`,
+`high`, `critical`). A confident answer makes the ticket `classified`; low confidence, the `other` category, a
+classifier failure or a spent daily budget make it `needs_human`. A ticket is never lost, even when the
+classifier is down.
 
----
+It is also a learning project for Kafka (consumer groups, manual commit, retry topic, DLQ, group-less
+fan-out, replay), the transactional outbox, Go concurrency, SSE, typed LLM classification with an eval set,
+and hardening an anonymous public API.
 
-## 1. Problem and goals
+The product requirements (behavior, API contracts, security controls, roadmap) are in
+[`docs/prd.md`](docs/prd.md).
 
-Support requests arrive as free text and someone has to read each one to decide which team owns it, how
-urgent it is, and whether it is a complaint. Ticket Triage accepts a ticket over HTTP, classifies it
-asynchronously with **Jev** (a typed "decision model" that returns probabilities instead of text), and either
-routes it to a team or hands it to a person when the model is not confident. The submitter watches the result
-arrive live over SSE.
+## How it works
 
-### Product goals
+1. `POST /tickets` stores the ticket as `pending` and an outbox row in one Postgres transaction, and answers
+   `202` with the ticket id and a one-time access token.
+2. The outbox relay in `cmd/api` publishes the row to the Kafka topic `tickets.submitted`.
+3. `cmd/worker` consumes it in a consumer group, reads the ticket from Postgres, asks Jev the three questions
+   in one call and applies the confidence thresholds.
+4. The worker writes the result, an audit row and a status event (again through the outbox) in one
+   transaction, then commits the Kafka offset.
+5. Every API instance reads `tickets.events` without a consumer group and pushes the new status to the
+   ticket's open SSE streams: "Your request was handed to the billing team, priority high." or "A person will
+   contact you."
 
-- Accept a ticket in English or Ukrainian and answer `202 Accepted` immediately; classification is async.
-- Classify each ticket on three questions: complaint or not, category, urgency.
-- Route confidently classified tickets to a team; send everything uncertain or failed to `needs_human`.
-  **A ticket is never lost**, even when the classifier is down.
-- Tell the submitter the outcome as a plain status message, pushed over SSE.
-- Behave like a public endpoint at work: no IDOR, bounded resources, bounded spend.
+```
+  Browser page (GET /) or any HTTP client
+     │ POST /tickets, GET /tickets/{id}                       ▲ SSE: event: status
+     ▼                                                        │
+ ┌─────────────────────────────────── cmd/api ────────────────┴──────────────────┐
+ │ httpapi (rate limits, caps, tokens) ─► ticket.Service.Submit                  │
+ │   one tx: INSERT tickets (pending) + INSERT outbox (tickets.submitted)        │
+ │ outbox relay: SELECT … FOR UPDATE SKIP LOCKED ─► produce ─► mark published    │
+ │ events reader (no consumer group, from the end) ─► notify.Hub ─► SSE streams  │
+ └───────┬──────────────────▲────────────────────────────────────────┬───────────┘
+         │ produce          │ tickets.events                         │ SQL
+         ▼                  │                                        ▼
+ ┌───────┴──────────────────┴────── Kafka (KRaft) ─────┐   ┌─────── Postgres 16 ──────┐
+ │ tickets.submitted        6 partitions, key=ticket id│   │ tickets                  │
+ │ tickets.submitted.retry  tickets.submitted.dlq      │   │ classifications (audit)  │
+ │ tickets.events                                      │   │ outbox                   │
+ └───────┬─────────────────────────────────────────────┘   │ stream_tokens            │
+         │ groups triage-workers, triage-workers-retry     │ shadow_classifications   │
+         ▼                                                 └────────────▲─────────────┘
+ ┌──────────────────────────────── cmd/worker ──────────────────────────┴────────┐
+ │ poll a batch ─► bounded pool ─► triage.Processor.Process(ticket id)           │
+ │   skip unless pending · budget check · Jev call (timeout, rate limit, retry)  │
+ │   classifier.Decide ─► one tx: UPDATE … WHERE status = 'pending'              │
+ │                        + INSERT classifications + INSERT outbox (events)      │
+ │ whole batch done ─► commit offsets                                            │
+ │ transient failure ─► tickets.submitted.retry · out of attempts or poison ─►   │
+ │   needs_human + tickets.submitted.dlq (cmd/redrive re-publishes by hand)      │
+ └───────────────────────────────────────┬───────────────────────────────────────┘
+                                         │ HTTPS
+                                         ▼
+                Jev via OpenRouter (POST /api/v1/systemone) or the direct TypeSafe API
+```
 
-### Learning goals
+- Delivery is at-least-once with an idempotent consumer: the worker skips a ticket that is no longer `pending`,
+  and the result is written with a conditional `UPDATE`, so a duplicate record costs at most one extra Jev
+  call, never duplicated state.
+- Kafka payloads carry only ids and status fields, never ticket text; the worker reads the text from Postgres.
+- `ticket`, `classifier` and `triage` import neither Kafka, Postgres nor `net/http`, so another transport can
+  reuse `triage.Processor`.
+- `worker shadow` replays `tickets.submitted` in its own consumer group, re-classifies history with another
+  model or other thresholds, and writes only to `shadow_classifications`, leaving tickets untouched.
 
-This is also a learning and interview project. It should exercise, on purpose:
+## Run it locally
 
-- Kafka: consumer groups, manual commit, rebalance handling, partition-bound parallelism, retry topics, DLQ,
-  fan-out without a group, replay.
-- The transactional outbox and why dual writes are wrong; at-least-once delivery with an idempotent consumer.
-- Go concurrency: bounded worker pools, context cancellation, graceful drain, goroutine-leak checks,
-  deterministic tests with `testing/synctest`.
-- Streaming HTTP with SSE and in-process fan-out.
-- Typed LLM classification: confidence thresholds, fail-open policy, an eval set, cost and latency accounting.
-- Security hardening of an anonymous public API.
-- Comparing transports (Kafka vs River vs RabbitMQ) on the same domain code.
+Needs Go 1.27 and Docker with Compose; `make smoke` also needs `curl` and `jq`.
 
-All code is written by agents through the Firstmate workflow. The human decides product questions, provides
-the API key and credits, reviews eval labels, and approves merges.
+```sh
+make up                     # Postgres and Kafka in Docker, then create the topics
+DATABASE_URL='postgres://triage:triage@localhost:5432/triage?sslmode=disable' \
+  go run ./cmd/migrate up   # apply the database migrations; migrate has no default URL
+go run ./cmd/api            # HTTP API on :8080, outbox relay, SSE fan-out
+go run ./cmd/worker         # classifier worker, in another terminal
+```
 
-### Non-goals (for the base scope)
+Open <http://localhost:8080/>, submit a request, and the page shows its status as it arrives over SSE.
+`make down` stops the stack; the data stays in the Docker volumes until `docker compose down -v`.
 
-- User accounts or login (possible later stage, §11).
-- AI-generated replies to the user before the RAG stage.
-- A real chat widget, WebSocket, webhook, or email notification.
-- A support-agent UI or a ticket listing endpoint (needs login; operators use Postgres directly until then).
-- Cloud deploy, Kubernetes, WAF, autoscaling (later separate stage).
-- Exactly-once processing or Kafka transactions: side effects live in Postgres and Jev, outside Kafka.
-- Multi-tenancy.
-- Sending real customer data to third parties or committing it.
+Apart from `cmd/migrate`, which always needs `DATABASE_URL`, the defaults need no configuration: they point
+at the Compose stack (Postgres on `localhost:5432`, Kafka on `localhost:29092`) and use the fake classifier,
+a deterministic keyword classifier that needs no key and makes no network call. Configuration comes only from environment variables; [`.env.example`](.env.example) lists
+every one with its default. The binaries do not read `.env` themselves, so load it into the shell first:
 
----
+```sh
+cp .env.example .env        # git-ignored; set CLASSIFIER=jev and OPENROUTER_API_KEY to use Jev
+set -a; . ./.env; set +a
+```
 
-## 2. Users and core flow
+Other commands:
 
-| User | What they do |
+| Command | What it does |
 |---|---|
-| Submitter (anonymous end user) | Submits a ticket from the built-in page or any HTTP client, watches its status |
-| Support team (downstream) | Receives tickets routed by category and priority; `needs_human` tickets go to a person |
-| Operator (the captain) | Runs the stack, sets thresholds and budget, runs the eval, reviews labels |
+| `make smoke` | `make up`, migrate, start `cmd/api` on `127.0.0.1:18080`, check the HTTP contract with `scripts/smoke.sh`, stop it with SIGTERM; the stack keeps running |
+| `make check` | build, `go vet`, `go test -race ./...`, golangci-lint; must pass before every PR |
+| `make test-integration` | tests behind the `integration` build tag, with Postgres and Kafka in testcontainers, including the end-to-end test |
+| `docker compose --profile ui up -d` | Kafka UI on <http://localhost:8081> |
+| `go run ./cmd/redrive -dry-run` | list the DLQ records; without `-dry-run` they go back to `tickets.submitted` |
+| `go run ./cmd/worker shadow -dry-run` | replay ticket history in shadow mode (`-dry-run` uses the fake classifier and writes nothing) |
+| `go run ./cmd/eval` | run the eval set through the fake classifier and write `docs/eval-fake.md` |
 
-Core flow:
+`cmd/jevprobe` and `cmd/eval -classifier jev` make live Jev calls and spend credits; they run only by hand,
+with a key, never in tests or CI.
 
-1. Submitter sends `POST /tickets {subject, body}`.
-2. API stores the ticket as `pending` plus an outbox row in one transaction and returns `202` with the ticket
-   id and a one-time **access token**.
-3. A relay publishes the outbox row to Kafka; a worker classifies the ticket with Jev and applies thresholds.
-4. Worker writes the result and a status event in one transaction (again through the outbox).
-5. The submitter's page, subscribed over SSE, receives the status message:
-   - classified: "Your request was handed to the **billing** team, priority **high**."
-   - needs_human: "A person will contact you."
+## API at a glance
 
----
-
-## 3. Functional requirements
-
-### 3.1 API
-
-All bodies are JSON. Errors use one shape: `{"error": {"code": "not_found", "message": "..."}}`.
+All bodies are JSON; every error has the shape `{"error": {"code": "...", "message": "..."}}`.
 
 | Endpoint | Auth | Success | Errors |
 |---|---|---|---|
-| `POST /tickets` | none | `202` | `400`, `413`, `415`, `429`, `503` |
-| `GET /tickets/{id}` | `Authorization: Bearer <access_token>` | `200` | `404` |
-| `POST /tickets/{id}/stream-token` | `Authorization: Bearer <access_token>` | `201` | `404`, `429` |
+| `POST /tickets` | none | `202` `{id, status, access_token, created_at}` | `400`, `413`, `415`, `429`, `503` |
+| `GET /tickets/{id}` | `Authorization: Bearer <access_token>` | `200` current state | `404` |
+| `POST /tickets/{id}/stream-token` | `Authorization: Bearer <access_token>` | `201` `{stream_token, expires_in}` | `404`, `429` |
 | `GET /tickets/{id}/events?token=<stream_token>` | single-use stream token | `200` `text/event-stream` | `404`, `429`, `503` |
-| `GET /` | none | minimal HTML page (embedded) | — |
-| `GET /healthz`, `GET /readyz` | none | `200` / `503` | — |
+| `GET /` | none | the built-in HTML page | — |
+| `GET /healthz`, `GET /readyz` | none | `200`; `/readyz` answers `503` while Postgres is unreachable | — |
 
-**`POST /tickets`**
+```sh
+curl -s localhost:8080/tickets -H 'Content-Type: application/json' \
+  -d '{"subject": "Charged twice", "body": "My card was charged twice for the May invoice."}'
+# {"id":"019a…","status":"pending","access_token":"…","created_at":"…"}
 
-- Request: `{"subject": string, "body": string}`, `Content-Type: application/json`. Subject 1–200 characters,
-  body 1–5000 characters (proposed limits), request body capped by `http.MaxBytesReader` (`413` above it).
-- Response `202`, `Location: /tickets/{id}`, `Cache-Control: no-store`:
-  `{"id": "<uuidv7>", "status": "pending", "access_token": "<token>", "created_at": "..."}`.
-- The access token is returned **only here, only once**. Only its SHA-256 hash is stored.
-- `429` with `Retry-After` when the per-IP submit rate is exceeded; `503` with `Retry-After` when the number of
-  `pending` tickets is above the cap.
-
-**`GET /tickets/{id}`**: a plain API endpoint for the current state. There is no polling UX on top of it.
-
-```json
-{
-  "id": "0192f6c1-...", "status": "classified", "status_reason": null,
-  "message": "Your request was handed to the billing team, priority high.",
-  "category": "billing", "priority": "high", "is_complaint": true,
-  "created_at": "...", "updated_at": "...", "classified_at": "..."
-}
+curl -s localhost:8080/tickets/019a… -H 'Authorization: Bearer …'
+# once a worker has classified it, for example:
+# {"id":"019a…","status":"classified","status_reason":null,
+#  "message":"Your request was handed to the billing team, priority high.",
+#  "category":"billing","priority":"high","is_complaint":false,"created_at":"…",…}
 ```
 
-Confidences and raw probabilities are internal and not returned.
+The access token is returned only once. `EventSource` cannot send headers, so a page trades the access token
+for a stream token that lives 60 seconds and opens one stream. The stream sends the current state first, then
+every status change as `event: status` with the same JSON as `GET /tickets/{id}`, and a `: heartbeat` comment
+every 15 seconds; it closes at a final status (`classified`, `needs_human`). The full contract is in
+[PRD §3](docs/prd.md#3-functional-requirements).
 
-**`404` instead of `403`.** An unknown id, a malformed id, a missing token, and a wrong token all return the
-same `404` body. When the ticket does not exist the handler still runs a compare against a dummy hash, so the
-cases are not distinguishable by timing either.
+## Eval results
 
-**`POST /tickets/{id}/stream-token`**: `EventSource` cannot send headers, so the page trades its Bearer token
-for a short-lived, single-use stream token: `{"stream_token": "<token>", "expires_in": 60}`. Stored hashed,
-bound to the ticket id.
+The eval set has 100 labeled tickets, 50 in English and 50 in Ukrainian: 30 sampled from the Bitext customer
+support dataset and 70 generated hard cases (surzhyk, typos, angry tone, vague requests, mixed topics). A live
+run of `typesafe/jev-1.14` through OpenRouter on 2026-10-29, at the default thresholds:
 
-**`GET /tickets/{id}/events?token=...`**: SSE stream, described in §3.4.
-
-### 3.2 Ticket lifecycle
-
-```
-              submit                 confident result, category != other
-   (none) ───────────► pending ──────────────────────────────────────► classified
-                          │
-                          │ low confidence / category=other / classifier failed
-                          │ after retries / invalid answer / daily budget spent
-                          └──────────────────────────────────────────► needs_human ──► resolved
-                                                                                    (RAG stage)
-```
-
-| Status | Meaning |
-|---|---|
-| `pending` | Accepted, waiting for classification. No separate `queued` state: the outbox guarantees publication |
-| `classified` | Category, complaint flag and urgency stored; confidence above thresholds |
-| `needs_human` | Fail-open: a person takes it. `status_reason` says why |
-| `resolved` | Reserved for when the user gets an answer (RAG stage or manual). Not used in the base scope |
-
-`status_reason` values: `low_confidence`, `category_other`, `classifier_unavailable`, `invalid_answer`,
-`budget_exhausted`. Transitions are validated in the domain; the worker may only move a ticket out of
-`pending`. `attempts` and `last_error` are kept for diagnostics.
-
-### 3.3 Classification
-
-One Jev call per ticket carries all three questions. The `state` sent to Jev holds only `subject` and `body`.
-
-| Question id | Jev type | Asks | Answer used |
+| Question | all | en | uk |
 |---|---|---|---|
-| `is_complaint` | `noul` | Does the customer express dissatisfaction or complain? | `P(yes)` |
-| `category` | `choice` | Which team should handle it? | option + `confidence` |
-| `urgency` | `score` | How urgent is it for the customer? | weighted level 0..3 + `confidence` |
+| Category | 94% | 90% | 98% |
+| Complaint | 93% | 96% | 90% |
+| Priority, exact | 84% | 82% | 86% |
+| Priority, within one level | 99% | 98% | 100% |
 
-Category taxonomy (configurable): `billing` (payments, invoices, refunds, pricing, subscriptions), `technical`
-(bugs, errors, outages, performance, API), `account` (login, password, access, profile, deletion),
-`feature_request` (new functionality), `other` (none of the above).
+- 73% of tickets are classified automatically; 19% go to a person as `other` and 8% for low confidence.
+  Category accuracy on the automatically classified tickets is 98.6%.
+- Latency per call: p50 225 ms, p95 276 ms.
+- Cost: about $0.00005 per ticket ($0.005 for the 100 calls), as reported by OpenRouter.
+- The labels are agent drafts not yet reviewed by a person, so every accuracy number is provisional.
 
-Urgency levels: `0` low (no time pressure), `1` normal (has a workaround), `2` high (blocks work or money
-already lost), `3` critical (outage, security incident, data loss, legal threat). The reported `priority` is
-the score rounded to the nearest level.
+[`docs/eval.md`](docs/eval.md) has the confusion matrices, the per-tag results, the threshold sweep and how to
+reproduce the run; [`docs/eval-fake.md`](docs/eval-fake.md) is the same report for the fake classifier.
 
-Thresholds (one config struct; starting values, tuned later by the eval):
+## Why Kafka, and where it does not fit
 
-| Setting | Start value | Effect |
-|---|---|---|
-| `CategoryMinConfidence` | 0.60 | below → `needs_human` (`low_confidence`) |
-| `UrgencyMinConfidence` | 0.50 | below → `needs_human` (`low_confidence`) |
-| `ComplaintUncertainBand` | 0.35–0.65 | inside → flag `complaint_uncertain`, status unchanged |
-| `RouteOtherToHuman` | true | `category == other` → `needs_human` (`category_other`) |
+Kafka is an event log, not a job queue, and most of this service is a job queue: one ticket, one
+classification, retried until it succeeds or goes to a person. Kafka was chosen for what it teaches, with the
+costs paid in the open:
 
-- **High urgency does not force `needs_human`.** Urgency only orders queues.
-- The decision is a pure function `policy.Decide(result, thresholds) (status, reason)` with table tests.
-- Tuning finer than 0.05 is pointless: probabilities vary by a few hundredths between runs (seen live: the
-  same ticket gave `P(complaint)` 0.84–0.87 over a dozen calls, T12).
-- The model version is pinned explicitly once thresholds are tuned.
+- **No per-message ack.** Kafka commits an offset per partition, so retries, delays and a dead-letter queue are
+  built by hand: a retry topic whose consumer pauses the partition until a record is due, and a DLQ topic with
+  a re-drive tool. RabbitMQ (ack/nack, TTL delays, dead-letter exchanges) and River (per-job retries, snooze)
+  have these built in.
+- **No delayed messages or priorities.** A record is read in offset order as soon as it is written; a retry
+  waits only because the retry consumer pauses its partition, and an urgent ticket cannot jump the queue.
+- **One slow or poison record holds up its partition.** The offset cannot move past a record until it is
+  done, and the worker commits a polled batch only once the whole batch is done, so one slow ticket holds up
+  the rest of its batch and its partition. This service limits it: a transient failure moves the ticket to
+  `tickets.submitted.retry` instead of blocking `tickets.submitted`, and a poison record, or one out of
+  retries, goes to `tickets.submitted.dlq` at once, with the ticket in `needs_human`.
+- **Parallelism is bound to partitions, planned ahead.** One partition is read by at most one consumer in a
+  group, so the partition count caps how many workers can share the load and has to be chosen before the
+  traffic arrives (`tickets.submitted` has 6). The worker adds parallelism inside a partition with a bounded
+  pool per polled batch.
+- **The database and the broker are separate systems.** Writing the ticket and then publishing can lose one of
+  the two on a crash, so every publish goes through a transactional outbox and a relay: an extra component and
+  some latency. River avoids it by inserting the job in the same Postgres transaction.
+- **Operational weight.** A broker, KRaft, offsets and retention are a lot for one service with modest traffic.
 
-### 3.4 Notification over SSE
+Where Kafka earns its place even here:
 
-- Flow on the page: `POST /tickets` → keep the access token in memory → `POST .../stream-token` → open
-  `EventSource('/tickets/{id}/events?token=...')`.
-- The handler consumes the stream token atomically, **subscribes to the hub first, then reads the current
-  state from Postgres** and sends it as the first `status` event. This closes the race where the ticket is
-  classified between submit and subscribe.
-- Events: `event: status` with the same JSON as `GET /tickets/{id}`; a `: heartbeat` comment every 15 s.
-- The stream closes after a final status (`classified`, `needs_human`), on client disconnect, or after a
-  maximum stream duration (proposed 10 min).
-- The stream token is single-use, so the browser's automatic reconnect would get `404`. The page handles
-  `onerror` by closing the `EventSource`, minting a new stream token and reconnecting.
-- Fan-out: every API instance reads `tickets.events` **without a consumer group**, from the end, and passes
-  events to an in-memory hub keyed by ticket id.
+- **Fan-out.** Every API instance reads `tickets.events` without a consumer group, so each one sees every status
+  change and can serve the SSE streams it holds; analytics or notifications could read the same topic later.
+- **Replay.** `worker shadow` re-reads `tickets.submitted` from the earliest offset in a new consumer group to
+  re-classify history after a model or threshold change, which a job queue cannot do once its jobs are consumed.
 
----
+River has neither fan-out nor replay. RabbitMQ does fan-out with exchanges but cannot replay consumed messages;
+both would re-enqueue from Postgres instead.
 
-## 4. Non-functional requirements
+The full comparison with River and RabbitMQ is in [PRD §6.1](docs/prd.md#61-kafka-vs-river-vs-rabbitmq); both
+are planned as optional drivers that reuse `triage.Processor`.
 
-### 4.1 Security
+## Security
 
-The endpoint is anonymous and public, so the controls are part of the base scope, not deferred.
+The endpoint is anonymous and public, so these controls are part of the base scope
+([PRD §4.1](docs/prd.md#41-security)):
 
-**Access to a ticket (IDOR).** Ticket ids are UUIDv7 and are not secrets (they are time-ordered and leak the
-creation time). Possession of the id alone must never give access, which is why there is a separate token.
+- **No IDOR.** Ticket ids (UUIDv7) are not secrets; reading a ticket needs its access token from
+  `crypto/rand.Text()`, sent as a Bearer header, never in a URL. Only `sha256(token)` is stored and compared in
+  constant time. An unknown id, a malformed id, a missing token and a wrong token all get the same `404`, with
+  a dummy compare so timing does not tell them apart.
+- **SSE tokens.** The stream token in the query string is short-lived, single-use, bound to the ticket and
+  consumed atomically in Postgres.
+- **Bounded resources.** Server timeouts (no server-wide write timeout, which would cut SSE; non-streaming
+  handlers set their own deadline), a request body limit (`413`), per-IP rate limits on submits and stream
+  tokens (`429` with `Retry-After`), per-IP and per-instance SSE caps, and a cap on pending tickets (`503`).
+- **Bounded spend.** A daily Jev budget in USD; once it is spent, tickets go to `needs_human` without a call.
+- **No leaks in logs.** Access tokens, stream tokens, the `Authorization` header and ticket text are never
+  logged, and the access log records the route pattern instead of the URL. Kafka carries no ticket text.
+- **Headers.** The built-in page is same-origin and served with `Content-Security-Policy`,
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. `X-Forwarded-For` counts only from
+  configured trusted proxies.
+- pprof runs on a separate listener that must be a loopback address. Secrets live only in the git-ignored
+  `.env`.
 
-| Control | Requirement |
+## Roadmap
+
+Stages 0–5 are done: the ticket API on Postgres, the classifier with the Jev adapter, the Kafka pipeline with
+the outbox, retry topic and DLQ, SSE notifications with the built-in page, and the eval set, eval report,
+shadow replay and these docs (T01–T25). Next:
+
+- Stage 6: reply drafts with RAG over a pgvector FAQ, the first AI-generated text for the user.
+- Stage 7 (optional): River and RabbitMQ drivers and a comparison write-up.
+- Stage 8: deploy and scaling (edge rate limiting, Kubernetes, autoscaling on consumer lag).
+- Stage 9 (possible): user accounts instead of access tokens.
+
+The task list is in [PRD §10](docs/prd.md#10-roadmap).
+
+## Repository layout
+
+| Path | Contents |
 |---|---|
-| Access token | `crypto/rand.Text()` (≥128 bits, base32), returned once on `POST`, `Cache-Control: no-store` |
-| Storage | Only `sha256(token)` stored; compared with `crypto/subtle.ConstantTimeCompare` |
-| Transport | `Authorization: Bearer` header, never in a URL |
-| Unauthorized | `404`, identical to "not found", constant-time path for missing tickets |
-| SSE | Short-lived (60 s) single-use stream token in the query string, bound to the ticket id, consumed atomically in Postgres (`UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING ticket_id`) |
+| `cmd/api`, `cmd/worker` | the two services |
+| `cmd/migrate`, `cmd/kafka-setup`, `cmd/redrive` | migrations, topic setup, DLQ re-drive |
+| `cmd/eval`, `cmd/eval-import`, `cmd/jevprobe` | eval report, eval set import, live Jev probe |
+| `internal/ticket`, `internal/classifier`, `internal/triage` | domain: tickets and tokens, classification policy, the processor |
+| `internal/classifier/jev` | the Jev adapter |
+| `internal/httpapi`, `internal/notify` | HTTP handlers, middleware, the built-in page, the SSE hub |
+| `internal/kafka`, `internal/outbox`, `internal/storage/postgres` | Kafka clients, outbox relay, repositories |
+| `migrations/`, `testdata/eval/` | SQL migrations, the eval set and its labeling guidelines |
+| `docs/` | the PRD and the eval reports |
 
-**Resource limits** (values are proposed defaults, all configurable):
-
-| Control | Requirement |
-|---|---|
-| Submit rate limit | Per client IP (e.g. 5/min, burst 3) via `golang.org/x/time/rate`; `429` + `Retry-After`. Stream-token minting is limited per IP too |
-| Server timeouts | `http.Server` `ReadHeaderTimeout` 5 s, `ReadTimeout` 10 s, `IdleTimeout` 60 s. No server-wide `WriteTimeout` (it would kill SSE); non-streaming handlers set a write deadline via `http.ResponseController` |
-| Body size | `http.MaxBytesReader` (e.g. 16 KiB) → `413` |
-| SSE connections | Per-IP cap (e.g. 5) → `429`; global per-instance cap (e.g. 1000) → `503` |
-| Backlog | Cap on `pending` tickets (e.g. 1000) → `503` + `Retry-After` |
-| Spend | Daily Jev budget in USD (UTC day). Once spent, tickets go to `needs_human` (`budget_exhausted`) **without** a Jev call |
-
-- Client IP is `RemoteAddr`. `X-Forwarded-For` is trusted only from configured proxies (relevant once a
-  CDN/WAF sits in front).
-- Rate limiters are in-memory per instance; global limits at the edge come with the deploy stage.
-- **Never logged:** access tokens, stream tokens, the `Authorization` header, ticket subject and body.
-  The access log records the route pattern (`r.Pattern`), never the raw URL, so `?token=` cannot leak.
-- Kafka messages carry only ids and status fields, never ticket text.
-- The HTML page is same-origin (no CORS in the base scope) and sends `Content-Security-Policy`,
-  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
-- Secrets live only in `.env` (git-ignored). Live Jev calls never run in CI.
-- `pprof` (incl. the `goroutineleak` profile) is served only on a separate localhost debug listener.
-
-### 4.2 Reliability and delivery semantics
-
-- **At-least-once** delivery; the Kafka offset is committed only after the database write.
-- **Idempotent consumer:** a cheap `SELECT status` skips non-`pending` tickets before calling Jev; the write is
-  `UPDATE tickets ... WHERE id = $1 AND status = 'pending'`, and if it updates 0 rows nothing else is written.
-  A duplicate costs at most one extra Jev call, never duplicated state.
-- **Transactional outbox** for every publish (submit and status events); no dual writes.
-- **Retries in three levels:**
-  1. in-process, for transient Jev errors (429, 529, 5xx, timeout, network): up to 3 attempts, exponential
-     backoff with jitter, `Retry-After` honored if present;
-  2. a retry topic with `attempt` and `not_before` headers; the retry consumer pauses the partition until due;
-  3. a DLQ after max attempts or immediately for poison records (bad payload, missing ticket, permanent 4xx).
-     The ticket goes to `needs_human` first, so the DLQ is for audit and manual re-drive, not rescue.
-- **Auth errors (401/403) from Jev** are a configuration failure, not a ticket failure: the worker logs an
-  error, does not commit, and stops consuming instead of dumping every ticket into `needs_human`.
-- **Graceful shutdown:** stop polling, drain in-flight work with a timeout, commit, leave the group, close.
-- **Jev per-call timeout** 3 s; client-side rate limit below the org limit plus a concurrency semaphore.
-
-### 4.3 Observability
-
-- `log/slog` JSON everywhere, request id on every HTTP log line.
-- **One log line per Jev call** with `provider`, `model` (as served, from the response), `ticket_id`,
-  `attempt`, `latency_ms`, `input_tokens`, `output_tokens`, `cost_usd`, `cost_source` (`reported` or
-  `estimated`), `outcome`, `http_status`.
-- The same data plus the raw response goes to the `classifications` audit table, so eval and debugging work
-  without repeat calls.
-- `/healthz` (process up) and `/readyz` (Postgres reachable).
-- A metrics stack is not decided (open item).
-
-### 4.4 Cost limits
-
-- Expected cost is about $0.000025 per ticket: ~600 input tokens for the three questions and a short ticket
-  (582 and 656 for the two sample tickets in T12) at $0.042 per 1M input tokens. Output tokens are reported
-  (87) but not billed.
-- `usage.cost` is reported by OpenRouter and equals `input_tokens × $0.042 / 1M` (T12); when missing (the
-  direct API is unverified), cost is estimated from `input_tokens × configured price` and marked `estimated`.
-- The daily budget (§4.1) is the hard stop. It is checked before each call and may overshoot by the calls
-  already in flight.
-
----
-
-## 5. Architecture
-
-Two binaries, `cmd/api` and `cmd/worker`, plus Postgres 16 and Kafka 4.x (KRaft, single node locally).
-
-```
-  Browser page / curl
-     │ POST /tickets, GET /tickets/{id}              ▲ SSE: status events
-     ▼                                               │
- ┌─────────────────────────────── cmd/api ───────────┴──────────────────────┐
- │ httpapi (limits, tokens) ─► ticket.Service.Submit                        │
- │   one tx: INSERT tickets(pending) + INSERT outbox(tickets.submitted)     │
- │ outbox relay: SELECT … FOR UPDATE SKIP LOCKED ─► ProduceSync             │
- │ events consumer (no group) ─► notify.Hub ─► SSE handlers                 │
- └──────┬─────────────────▲──────────────────────────────────┬──────────────┘
-        │ produce         │ tickets.events                   │ SQL
-        ▼                 │                                  ▼
- ┌──────┴─────────────────┴── Kafka (KRaft) ──────┐   ┌──────┴ Postgres 16 ─┐
- │ tickets.submitted        key=ticket_id, 6 part.│   │ tickets             │
- │ tickets.submitted.retry  tickets.submitted.dlq │   │ classifications     │
- │ tickets.events           key=ticket_id         │   │ outbox              │
- └──────────────┬─────────────────────────────────┘   │ stream_tokens       │
-                │ group "triage-workers"              └──────────▲──────────┘
-                ▼                                                │ SQL
- ┌──────────────┴──────────────── cmd/worker ────────────────────┴──────────┐
- │ PollRecords ─► bounded pool ─► triage.Processor.Process(ticketID)        │
- │   skip if not pending · budget check · Jev call (timeout, retry)         │
- │   policy.Decide ─► one tx: conditional UPDATE + INSERT classifications   │
- │                    + INSERT outbox(tickets.events)                       │
- │ all records done ─► CommitRecords ─► AllowRebalance                      │
- │ transient after retries ─► .retry   ·   poison / max attempts ─► .dlq    │
- └────────────────────────────────────┬─────────────────────────────────────┘
-                                      │ HTTPS
-                                      ▼
-                    Jev via OpenRouter (POST /api/v1/systemone)
-```
-
-Key points:
-
-- `triage.Processor` is **transport-agnostic**: it knows nothing about Kafka, so River and RabbitMQ drivers can
-  reuse it.
-- Kafka payloads are `{ticket_id, submitted_at}` (or status fields for events); the worker reads the ticket
-  from Postgres.
-- Topics are created explicitly by `cmd/kafka-setup` (auto-create disabled).
-- Consumer pattern is batch-then-commit: poll N, process concurrently in a bounded pool, wait for all, commit.
-  The price is head-of-line blocking inside a batch; acceptable at this scale.
-- Domain packages (`ticket`, `classifier`, `triage`) do not import Kafka, Postgres or `net/http`; interfaces are
-  declared where they are used; wiring lives only in `cmd/*`.
-
-Data model (start):
-
-| Table | Purpose |
-|---|---|
-| `tickets` | id (UUIDv7), subject, body, status, status_reason, category + confidence, complaint_p, urgency + confidence, access_token_hash, attempts, last_error, timestamps |
-| `classifications` | Audit, one row per classifier call: provider, model, latency, tokens, cost, cost_source, outcome, raw response |
-| `outbox` | topic, key, payload, headers, created_at, published_at; partial index on unpublished rows |
-| `stream_tokens` | token hash, ticket id, expires_at, used_at |
-
-Planned layout: `cmd/{api,worker,migrate,kafka-setup,redrive,jevprobe,eval}`, `internal/{ticket,classifier,classifier/jev,
-triage,outbox,kafka,notify,storage/postgres,httpapi,config}`, `migrations/`, `testdata/eval/`.
-
----
-
-## 6. Technology choices
-
-| Choice | Why |
-|---|---|
-| **Go 1.27, stdlib first** | `net/http` routing patterns, `log/slog`, stdlib `uuid` (`uuid.NewV7()`), `sync.WaitGroup.Go`, `testing/synctest`, `crypto/rand.Text`. Verified locally on `go1.27.3`. Use `encoding/json/v2` (plus `encoding/json/jsontext` for streaming) everywhere, do not mix with v1 |
-| **pgx v5** | Native Postgres driver and pool; encodes and scans stdlib `uuid.UUID` without adapters (verified with v5.11.0) |
-| **goose v3** | SQL migrations embedded with `embed.FS`, run by `cmd/migrate` |
-| **franz-go** (+ `kadm`, `kfake`) | Pure Go (no cgo), full control of manual commit and rebalance (`DisableAutoCommit`, `BlockRebalanceOnPoll`, `CommitRecords`), in-process fake broker for fast tests. Chosen over segmentio/kafka-go (still 0.x, less control) and confluent-kafka-go (cgo) |
-| **Kafka 4.x, KRaft** | No ZooKeeper; single node locally (`apache/kafka` image, see [Local stack](#local-stack)) |
-| **Jev via OpenRouter** | Typed answers with probabilities fit triage better than parsing free text; one OpenRouter key also serves the text LLM in the RAG stage. The captain creates the key and credits. The adapter also supports the direct TypeSafe API |
-| **UUIDv7** for ids | Time-ordered (index locality), in the stdlib. ULID has the same properties but adds a dependency, and the id is not a secret either way |
-| `golang.org/x/time/rate` | Client-side Jev rate limit and per-IP limits. Not stdlib, an accepted dependency |
-| `testcontainers-go` | Postgres and Kafka in integration tests only |
-
-This list is the allowed set of third-party dependencies for the base scope; the comparison stages add their
-own (River, a RabbitMQ client), and anything else needs a reason in the task that adds it.
-
-### 6.1 Kafka vs River vs RabbitMQ
-
-Kafka is kept as the primary transport, chosen for learning value. Kafka is an event log, not a job queue, and
-this service is mostly a job queue, so the trade-offs are explicit:
-
-- **Dual write.** Writing the ticket and then publishing can lose one of the two on a crash. The outbox plus
-  relay fixes it. RabbitMQ needs the same outbox. Only River avoids it, because the job is inserted in the same
-  Postgres transaction (`InsertTx`).
-- **Acks and retries.** Kafka commits an offset per partition, so per-message retry, delay and DLQ are built by
-  hand (retry topic, partition pause, DLQ topic). RabbitMQ has per-message ack/nack, TTL delays and a native
-  dead-letter exchange (DLX). River has per-job retries with backoff, snooze and discard.
-- **Parallelism.** Kafka parallelism is bounded by partitions (worked around with a pool per batch); RabbitMQ
-  uses prefetch × consumers; River uses `MaxWorkers` per queue.
-- **Replay.** Not needed for the base flow. Re-classifying history after a model or threshold change is a real
-  replay case here: a new consumer group reads `tickets.submitted` from the earliest offset (retention must
-  cover the window) and writes shadow classifications without changing ticket status. RabbitMQ and River
-  cannot replay consumed messages; they would re-enqueue from Postgres.
-- **Fan-out.** Several independent readers of `tickets.events` (SSE now, analytics later) are natural in Kafka;
-  RabbitMQ does it with exchanges (no replay); River does not do fan-out.
-- **Where Kafka is the right tool:** many independent consumers of the same events, replay, high throughput,
-  event history. **Where a job queue is better:** per-task ack, delays, priorities and retries with one
-  database, as in the base flow of this service.
-
-River and RabbitMQ are added later as optional drivers behind `QUEUE_DRIVER=kafka|river|rabbitmq`, reusing
-`triage.Processor`, to compare code size, failure handling and operations.
-
----
-
-## 7. Jev integration
-
-Facts marked T12 were checked live by `cmd/jevprobe` against OpenRouter on 2026-10-28 (29 calls, about
-$0.0005); the recordings are in `internal/classifier/jev/testdata/live/`.
-
-- Endpoint: `POST https://openrouter.ai/api/v1/systemone` with a Bearer OpenRouter key (T12). OpenRouter's
-  Decisions API, `POST https://openrouter.ai/api/alpha/decisions`, takes the same request and returns the
-  same response (T12); the adapter uses `/v1/systemone`. Direct TypeSafe is
-  `POST https://api.typesafe.ai/v1/systemone`: it exists (401 for a bad key, T12), but its success format is
-  **[unverified]** (no direct key).
-- Request `{model, state, questions}`; response `{model, answers: {<id>: ...}, usage: {input_tokens,
-  output_tokens, cost}, id, provider}` (T12). Question ids are not shown to the model; meaning comes from
-  `instructions` and `criteria`.
-- `noul` takes optional `criteria` `{"true": ..., "false": ...}` with both keys required, each a string (the
-  validation message also allows a record or an array), checked live on 2026-10-29. Criteria sent as a string,
-  as an array, or without the `true` and `false` keys are rejected with 400. `is_complaint` sends the
-  "Complaint" labeling guidelines of `testdata/eval/README.md` there; `docs/eval.md` shows the effect.
-- `score` takes `criteria` only as an array, one entry per level from level 0 up, checked live on 2026-10-29:
-  an object, keyed by level number or by name, is rejected with 400; array entries may also be objects, which
-  the answer's `legend` echoes back; a key other than `type`, `instructions` and `criteria` is ignored (same
-  input tokens). `urgency` sends the "Urgency" labeling guidelines of `testdata/eval/README.md`: the rules for
-  all levels after the instruction, each level's list as its criterion; `docs/eval.md` shows the effect.
-- Answer shapes (T12): `noul` → `{type, noul: P(yes)}` without a confidence; `choice` → `{type, choice,
-  probabilities: {option: p}, confidence}`; `score` → `{type, score, legend: {"0": level, ...},
-  probabilities: {"0": p, ...}, confidence}`. A `score` with a single level is accepted (the docs say 2–10).
-- Models on `/v1/systemone` (T12): `typesafe/jev-1.14` (pinned) and `~typesafe/jev-latest` (alias) both serve
-  the snapshot `typesafe/jev-1.14-20261014`, which is also accepted as a model id; `typesafe/jev-1.13` serves
-  `typesafe/jev-1.13-20260917`. `typesafe/jev-latest` (no `~`) and `typesafe/jev-router` are rejected with
-  400: `jev-router` is a chat-completions router and the only Jev id in OpenRouter's public model list, which
-  does not list the System One models. The direct API's names (`jev-1.14.0`, `jev-latest`) are
-  **[unverified]**.
-- Errors on OpenRouter (T12): `{"error": {"code": <HTTP status>, "message": ...}}`, sometimes with the
-  account's `user_id`. 401 for a bad key ("User not found." for a well-formed unknown key, "Missing
-  Authentication header" for a malformed one); 400 for an unknown model, a criteria validation failure (the message
-  names the field) and unparseable JSON; no 422 was seen. The direct API answers a bad key with 401
-  `{"detail": {"error_type": "authentication_error", "message": ...}}`. Responses carry no rate-limit headers.
-- Latency from Europe (T12): mostly 200–550 ms for a success, with single calls up to 1.6 s (a cold first
-  call, `jev-1.13`); errors return in 25–280 ms. TypeSafe claims 70–500 ms, mostly ~100 ms from US West.
-- Context limit ~32k tokens for state plus one question in standard mode **[unverified]**; tickets are far below.
-- The adapter maps HTTP failures to three errors the processor reacts to: `ErrTransient` (429, 529, 5xx,
-  timeout, network), `ErrPermanent` (400, 422, missing or mistyped answers), `ErrAuth` (401, 403).
-- `CLASSIFIER=fake|jev`. The fake is a deterministic keyword classifier for tests and dev without a key.
-
----
-
-## 8. Data and evaluation
-
-- **Eval set** (JSONL: `subject`, `body`, `lang`, `expected_category`, `expected_complaint`,
-  `expected_urgency`) in English and Ukrainian, built from:
-  - a public dataset of real support tickets, for example Kaggle "Customer Support on Twitter" or Bitext on
-    Hugging Face. **The license must be checked first.** Raw dataset files are fetched by a script and
-    git-ignored unless the license allows redistribution;
-  - generated hard cases: surzhyk, typos, angry tone, vague requests, mixed topics.
-- Agents draft labels; **the human reviews them**.
-- No real customer data is sent to third parties or committed.
-- `cmd/eval` reports per-question accuracy and confusion matrices, p50/p95 latency, total cost, and a threshold
-  sweep (share of `needs_human` against accuracy on auto-classified tickets). It also measures Jev quality on
-  Ukrainian, which is unknown. Output goes to `docs/eval.md`.
-- End-to-end tests use the fake classifier, so realism matters only for the eval set.
-
----
-
-## 9. Testing strategy
-
-Every change passes `make check`: build, `go vet`, `go test -race ./...`, `golangci-lint` (incl. `errcheck`,
-`staticcheck`, `contextcheck`, `bodyclose`, `noctx`, `sqlclosecheck`).
-
-| Level | Tool | Covers |
-|---|---|---|
-| Unit | `testing`, table tests | Status transitions, `policy.Decide` at threshold edges, question building, Jev decoding, input validation, token hashing and compare |
-| Concurrency | `testing/synctest` | Worker pool drain on cancel, backoff with fake clock, per-call timeout, rate limiter, hub unsubscribe. No network inside synctest |
-| HTTP | `net/http/httptest` | Handlers with a fake service: status codes, 404-not-403, 413, 429 + `Retry-After`, 503 caps, stream-token single use, log redaction; Jev adapter against golden JSON and 401/422/429/529/timeout |
-| Kafka | `franz-go/pkg/kfake` | Commit only after processing, rebalance, restart without loss, retry and DLQ routing, relay publish |
-| Postgres | `testcontainers-go` | Repositories, transactions, conditional update race, outbox `SKIP LOCKED` with two relays, atomic stream-token consume |
-| End-to-end | testcontainers Postgres + Kafka, build tag `integration` | submit → outbox → Kafka → worker (fake classifier) → `classified` + SSE event; separate CI job |
-| Live | `cmd/jevprobe`, `cmd/eval` | Manual only, with a key; never in CI |
-
----
-
-## 10. Roadmap
-
-Each task is one reviewable change with its own tests and passes `make check`.
-
-**Stage 0 — Foundation**
-- T01 Skeleton and tooling: `go.mod`, layout, `Makefile`, lint config, `.env.example`, `AGENTS.md`, CI.
-- T02 Local infra: `compose.yaml` with Postgres 16 (pgvector image) and Kafka KRaft, healthchecks.
-- T03 Config, `slog` logging with redaction rules, signal handling and shutdown.
-
-**Stage 1 — Ticket API on Postgres (no Kafka)**
-- T04 Migrations: `tickets`, `classifications`, `stream_tokens`; `cmd/migrate`.
-- T05 Domain: ticket, statuses and transitions, service, UUIDv7, validation, access token issue and verify.
-- T06 Postgres repositories.
-- T07 HTTP API: `POST /tickets`, `GET /tickets/{id}` with Bearer token, error model, 404-not-403.
-- T08 **Security hardening**: server timeouts, body limit, per-IP submit rate limit, pending cap, trusted
-  proxies, security headers, log-redaction tests.
-- T09 `cmd/api` wiring, `/healthz`, `/readyz`, smoke script.
-
-**Stage 2 — Classifier**
-- T10 Classifier interface, thresholds and `Decide`, fake classifier.
-- T11 Jev adapter (OpenRouter and TypeSafe), error mapping, cost, per-call logging.
-- T12 `cmd/jevprobe`: live call, golden fixtures, closes the Jev open items. Needs the key and credits.
-- T13 `triage.Processor`: skip, budget guard, timeout, in-process retry, conditional update and audit.
-
-**Stage 3 — Kafka pipeline**
-- T14 Kafka foundation and `cmd/kafka-setup`.
-- T15 Transactional outbox and relay.
-- T16 Classifier consumer: batch, bounded pool, manual commit, graceful drain, stop on `ErrAuth`.
-- T17 Retry topic, DLQ, re-drive tool.
-- T18 End-to-end integration test.
-
-**Stage 4 — Notifying the user**
-- T19 Status events through the outbox to `tickets.events`.
-- T20 SSE: hub, group-less events consumer, stream tokens, per-IP and global connection caps.
-- T21 Minimal built-in HTML page: submit form, status message via `EventSource`.
-
-**Stage 5 — Eval and interview-ready**
-- T22 Eval set: dataset license check and import script, generated hard cases, human-reviewed labels.
-- T23 `cmd/eval`: accuracy, latency, cost, threshold sweep.
-- T24 Replay: re-classify history with a new model or thresholds through a separate consumer group (shadow mode).
-- T25 Docs: README from this PRD, eval results, Kafka rationale; PRD moves to `docs/`.
-
-**Stage 6 — RAG reply drafts**
-- T26 pgvector and FAQ ingest.
-- T27 Reply suggestions (first AI-generated text for the user); introduces `resolved`.
-
-**Stage 7 — Alternative transports (optional, for comparison)**
-- T28 River driver (`InsertTx`, no outbox).
-- T29 RabbitMQ driver (outbox kept, DLX instead of the DLQ topic).
-- T30 Comparison write-up: code size, failure handling, operations.
-
-**Stage 8 — Deploy and scaling (later, separate)**
-- Cloudflare/WAF in front, edge rate limiting, trusted client IP.
-- Kubernetes manifests.
-- Autoscaling: HPA for the API; KEDA on Kafka consumer lag for workers, with worker replicas bounded by the
-  partition count.
-
-**Stage 9 — Login (possible later)**
-- User accounts, ticket ownership instead of access tokens, operator listing and console.
-
-Critical path to "a ticket is classified through Kafka": T01 → T02 → T04 → T06 → T13 → T16 (with T14, T15) → T18.
-T22 does not depend on code and can start any time.
-
----
-
-## 11. Open items
-
-- **Jev details still open after T12** (2026-10-28; resolved there: the OpenRouter error format, the Decisions
-  API, served snapshot ids and working model ids, see §7):
-  - `Retry-After` on 429/529: no 429 or 529 was seen, and the 400 and 401 answers carry no `Retry-After`.
-  - Rate limits for a new account: five concurrent calls all succeeded; responses carry no rate-limit headers,
-    and the `rate_limit` field of OpenRouter's key endpoint is deprecated (`-1`). The limit is unknown.
-  - `usage.cost` and the success format on the direct API: not checked, there is no direct TypeSafe key.
-  - Whether prepaid credits are required: the key used had purchased credits (not free tier); an account
-    without credits was not tried.
-- **Jev quality on Ukrainian** and on surzhyk: unknown until the eval.
-- **Dataset license** for the public ticket dataset; decides whether any of it can be committed.
-- **Limit values** (rate limits, caps, budget, token TTL, text lengths) are proposals to tune.
-- **Metrics:** whether to add a metrics endpoint (e.g. Prometheus) beyond logs and the audit table.
-- **Operator access before login:** the earlier plan had a public `GET /tickets` listing; it is dropped here
-  because without login it would expose every ticket. Confirm, or add an operator-only variant.
-- Webhook or email notification only if a "site with its own backend" surface appears.
-
-## Local stack
-
-`compose.yaml` runs the dependencies; the Go binaries run on the host.
-
-| Service | Image | Host address | From containers |
-|---|---|---|---|
-| `postgres` | `pgvector/pgvector:0.8.7-pg16` | `localhost:5432` (user, password, db: `triage`) | `postgres:5432` |
-| `kafka` | `apache/kafka:4.3.2`, single node, KRaft combined mode | `localhost:29092` | `kafka:9092` |
-| `kafka-ui` (optional, profile `ui`) | `kafbat/kafka-ui:v1.5.0` | <http://localhost:8081> | — |
-
-- `make up` starts Postgres and Kafka, waits for their healthchecks (`pg_isready`, `kafka-broker-api-versions.sh`),
-  then runs `cmd/kafka-setup` to create the topics.
-- `make smoke` runs `make up`, migrates, starts `cmd/api` on `127.0.0.1:18080`, checks the HTTP contract
-  (`scripts/smoke.sh`, needs `curl` and `jq`) and stops the API with SIGTERM. The stack is left running.
-- `docker compose --profile ui up -d` adds the Kafka UI. `make down` stops everything, UI included.
-- Data lives in the named volumes `postgres-data` and `kafka-data`; `docker compose down -v` deletes it.
-- Ports bind to `127.0.0.1` only. Topic auto-creation is off; topics come from `cmd/kafka-setup` (T14).
-- List topics: `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list`.
+[`AGENTS.md`](AGENTS.md) holds the rules for the coding agents that write this code.

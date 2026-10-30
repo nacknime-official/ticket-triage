@@ -363,7 +363,7 @@ func renderReproduce(b *bytes.Buffer) {
 	b.WriteString("## Reproduce\n\n")
 	b.WriteString("From the repository root. The fake run needs no key and makes no network call:\n\n")
 	fmt.Fprintf(b, "```sh\n%s\n```\n\n", fakeCommand)
-	b.WriteString("The live run calls Jev once per row (about 100 calls, a fraction of a cent at the README §4.4 price)\n" +
+	b.WriteString("The live run calls Jev once per row (about 100 calls, a fraction of a cent at the PRD §4.4 price)\n" +
 		"with the key from `~/.config/ticket-triage/.env`, stops if the calls cost more than `-max-cost` ($0.05),\n" +
 		"and writes `" + defaultLiveOut + "`:\n\n")
 	fmt.Fprintf(b, "```sh\n%s\n```\n\n", liveCommand)

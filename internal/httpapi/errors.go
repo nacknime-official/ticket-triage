@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Error codes of the JSON error body (README §3.1).
+// Error codes of the JSON error body (PRD §3.1).
 const (
 	codeInvalidJSON          = "invalid_json"
 	codeValidationFailed     = "validation_failed"

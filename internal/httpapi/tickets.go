@@ -14,7 +14,7 @@ import (
 	"github.com/nacknime-official/ticket-triage/internal/ticket"
 )
 
-// MaxBodyBytes caps the POST /tickets request body (README §4.1).
+// MaxBodyBytes caps the POST /tickets request body (PRD §4.1).
 const MaxBodyBytes = 16 << 10
 
 // backlogRetryAfter is the Retry-After, in seconds, sent with the 503 for a
@@ -34,7 +34,7 @@ type submitResponse struct {
 }
 
 // ticketResponse is the public view of a ticket. Confidences and raw
-// probabilities are internal and left out (README §3.1).
+// probabilities are internal and left out (PRD §3.1).
 type ticketResponse struct {
 	ID           string         `json:"id"`
 	Status       ticket.Status  `json:"status"`

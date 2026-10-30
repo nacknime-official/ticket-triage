@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// pageFiles is the built-in page of README §2: a submit form that shows the
+// pageFiles is the built-in page of PRD §2: a submit form that shows the
 // status message as it arrives over SSE. The script and stylesheet are
 // separate same-origin files, so the page runs under contentSecurityPolicy
 // without 'unsafe-inline'.
