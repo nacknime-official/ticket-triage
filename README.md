@@ -175,8 +175,17 @@ costs paid in the open:
   built by hand: a retry topic whose consumer pauses the partition until a record is due, and a DLQ topic with
   a re-drive tool. RabbitMQ (ack/nack, TTL delays, dead-letter exchanges) and River (per-job retries, snooze)
   have these built in.
-- **Parallelism is bound to partitions.** The worker processes a polled batch in a bounded pool and commits
-  once the whole batch is done; one slow ticket holds up the rest of its batch.
+- **No delayed messages or priorities.** A record is read in offset order as soon as it is written; a retry
+  waits only because the retry consumer pauses its partition, and an urgent ticket cannot jump the queue.
+- **One slow or poison record holds up its partition.** The offset cannot move past a record until it is
+  done, and the worker commits a polled batch only once the whole batch is done, so one slow ticket holds up
+  the rest of its batch and its partition. This service limits it: a transient failure moves the ticket to
+  `tickets.submitted.retry` instead of blocking `tickets.submitted`, and a poison record, or one out of
+  retries, goes to `tickets.submitted.dlq` at once, with the ticket in `needs_human`.
+- **Parallelism is bound to partitions, planned ahead.** One partition is read by at most one consumer in a
+  group, so the partition count caps how many workers can share the load and has to be chosen before the
+  traffic arrives (`tickets.submitted` has 6). The worker adds parallelism inside a partition with a bounded
+  pool per polled batch.
 - **The database and the broker are separate systems.** Writing the ticket and then publishing can lose one of
   the two on a crash, so every publish goes through a transactional outbox and a relay: an extra component and
   some latency. River avoids it by inserting the job in the same Postgres transaction.
@@ -188,6 +197,9 @@ Where Kafka earns its place even here:
   change and can serve the SSE streams it holds; analytics or notifications could read the same topic later.
 - **Replay.** `worker shadow` re-reads `tickets.submitted` from the earliest offset in a new consumer group to
   re-classify history after a model or threshold change, which a job queue cannot do once its jobs are consumed.
+
+River has neither fan-out nor replay. RabbitMQ does fan-out with exchanges but cannot replay consumed messages;
+both would re-enqueue from Postgres instead.
 
 The full comparison with River and RabbitMQ is in [PRD §6.1](docs/prd.md#61-kafka-vs-river-vs-rabbitmq); both
 are planned as optional drivers that reuse `triage.Processor`.
