@@ -79,7 +79,8 @@ Needs Go 1.27 and Docker with Compose; `make smoke` also needs `curl` and `jq`.
 
 ```sh
 make up                     # Postgres and Kafka in Docker, then create the topics
-go run ./cmd/migrate up     # apply the database migrations
+DATABASE_URL='postgres://triage:triage@localhost:5432/triage?sslmode=disable' \
+  go run ./cmd/migrate up   # apply the database migrations; migrate has no default URL
 go run ./cmd/api            # HTTP API on :8080, outbox relay, SSE fan-out
 go run ./cmd/worker         # classifier worker, in another terminal
 ```
@@ -87,9 +88,9 @@ go run ./cmd/worker         # classifier worker, in another terminal
 Open <http://localhost:8080/>, submit a request, and the page shows its status as it arrives over SSE.
 `make down` stops the stack; the data stays in the Docker volumes until `docker compose down -v`.
 
-The defaults need no configuration: they point at the Compose stack (Postgres on `localhost:5432`, Kafka on
-`localhost:29092`) and use the fake classifier, a deterministic keyword classifier that needs no key and makes
-no network call. Configuration comes only from environment variables; [`.env.example`](.env.example) lists
+Apart from `cmd/migrate`, which always needs `DATABASE_URL`, the defaults need no configuration: they point
+at the Compose stack (Postgres on `localhost:5432`, Kafka on `localhost:29092`) and use the fake classifier,
+a deterministic keyword classifier that needs no key and makes no network call. Configuration comes only from environment variables; [`.env.example`](.env.example) lists
 every one with its default. The binaries do not read `.env` themselves, so load it into the shell first:
 
 ```sh
